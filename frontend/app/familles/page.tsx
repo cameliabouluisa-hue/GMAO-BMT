@@ -1,6 +1,17 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import {
+  ChevronDown,
+  Download,
+  Eye,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
 
 type Modele = {
   idModele: number;
@@ -46,296 +57,35 @@ function buildFamilleTree(familles: FamilleApi[]): FamilleNode[] {
   return roots;
 }
 
-function countAllChildren(node: FamilleNode): number {
-  let total = node.children.length;
-
-  for (const child of node.children) {
-    total += countAllChildren(child);
-  }
-
-  return total;
-}
-
-function countAllModeles(node: FamilleNode): number {
-  let total = node.modele?.length || 0;
-
-  for (const child of node.children) {
-    total += countAllModeles(child);
-  }
-
-  return total;
-}
-
-function FamilleCard({
-  node,
+function flattenTree(
+  nodes: FamilleNode[],
   level = 0,
-  famillesMap,
-}: {
-  node: FamilleNode;
-  level?: number;
-  famillesMap: Map<number, FamilleApi>;
-}) {
-  const [open, setOpen] = useState(true);
+): Array<{ node: FamilleNode; level: number }> {
+  const result: Array<{ node: FamilleNode; level: number }> = [];
 
-  const parentFamille =
-    node.parent_id && famillesMap.has(node.parent_id)
-      ? famillesMap.get(node.parent_id)
-      : null;
+  for (const node of nodes) {
+    result.push({ node, level });
 
-  const totalSousFamilles = countAllChildren(node);
-  const totalModeles = countAllModeles(node);
+    if (node.children.length > 0) {
+      result.push(...flattenTree(node.children, level + 1));
+    }
+  }
 
-  return (
-    <div className="relative">
-      {level > 0 && (
-        <div
-          className="absolute left-4 top-0 h-full border-l-2 border-dashed"
-          style={{ borderColor: '#81C3D7' }}
-        />
-      )}
-
-      <div
-        className="relative rounded-[28px] border p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-        style={{
-          marginLeft: `${level * 28}px`,
-          backgroundColor: '#FFFFFF',
-          borderColor: '#D9DCD6',
-        }}
-      >
-        <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex items-start gap-4">
-            <button
-              type="button"
-              onClick={() => setOpen((prev) => !prev)}
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border text-xl font-semibold transition hover:scale-105"
-              style={{
-                backgroundColor: open ? '#16425B' : '#2F6690',
-                borderColor: '#16425B',
-                color: '#FFFFFF',
-              }}
-            >
-              {open ? '−' : '+'}
-            </button>
-
-            <div>
-              <div className="flex flex-wrap items-center gap-3">
-                <h2
-                  className="text-2xl font-bold"
-                  style={{ color: '#16425B' }}
-                >
-                  {node.libelle || 'Famille sans libellé'}
-                </h2>
-
-                <span
-                  className="rounded-full px-4 py-1 text-sm font-semibold"
-                  style={{
-                    backgroundColor: '#D9DCD6',
-                    color: '#16425B',
-                  }}
-                >
-                  {node.code || 'Sans code'}
-                </span>
-              </div>
-
-              <p className="mt-2 text-sm" style={{ color: '#3A7CA5' }}>
-                Structure hiérarchique des familles du module équipement BMT.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <span
-              className="rounded-full px-4 py-2 text-sm font-semibold"
-              style={{
-                backgroundColor: '#E9F6FA',
-                color: '#16425B',
-              }}
-            >
-              Niveau {level + 1}
-            </span>
-
-            <span
-              className="rounded-full px-4 py-2 text-sm font-semibold"
-              style={{
-                backgroundColor: '#D6ECF5',
-                color: '#16425B',
-              }}
-            >
-              {totalSousFamilles} sous-famille{totalSousFamilles > 1 ? 's' : ''}
-            </span>
-
-            <span
-              className="rounded-full px-4 py-2 text-sm font-semibold"
-              style={{
-                backgroundColor: '#DCEFF6',
-                color: '#16425B',
-              }}
-            >
-              {totalModeles} modèle{totalModeles > 1 ? 's' : ''}
-            </span>
-          </div>
-        </div>
-
-        <div
-          className="grid gap-3 rounded-[22px] border p-4 md:grid-cols-2 xl:grid-cols-4"
-          style={{
-            backgroundColor: '#F8FBFC',
-            borderColor: '#D9DCD6',
-          }}
-        >
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#3A7CA5' }}>
-              Code famille
-            </p>
-            <p className="mt-1 text-base font-semibold" style={{ color: '#16425B' }}>
-              {node.code || '—'}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#3A7CA5' }}>
-              Libellé
-            </p>
-            <p className="mt-1 text-base font-semibold" style={{ color: '#16425B' }}>
-              {node.libelle || '—'}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#3A7CA5' }}>
-              Parent famille
-            </p>
-            <p className="mt-1 text-base font-semibold" style={{ color: '#16425B' }}>
-              {parentFamille?.libelle || 'Aucune (racine)'}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#3A7CA5' }}>
-              Modèles directs
-            </p>
-            <p className="mt-1 text-base font-semibold" style={{ color: '#16425B' }}>
-              {node.modele?.length || 0}
-            </p>
-          </div>
-        </div>
-
-        {open && (
-          <div className="mt-5 grid gap-5 xl:grid-cols-2">
-            <section
-              className="rounded-[24px] border p-5"
-              style={{
-                backgroundColor: '#F7FAFB',
-                borderColor: '#D9DCD6',
-              }}
-            >
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-bold" style={{ color: '#16425B' }}>
-                  Modèles liés
-                </h3>
-                <span
-                  className="rounded-full px-3 py-1 text-xs font-semibold"
-                  style={{
-                    backgroundColor: '#81C3D7',
-                    color: '#16425B',
-                  }}
-                >
-                  {node.modele?.length || 0}
-                </span>
-              </div>
-
-              {node.modele && node.modele.length > 0 ? (
-                <div className="space-y-3">
-                  {node.modele.map((modele) => (
-                    <div
-                      key={modele.idModele}
-                      className="rounded-[20px] border p-4 transition hover:shadow-sm"
-                      style={{
-                        backgroundColor: '#FFFFFF',
-                        borderColor: '#D9DCD6',
-                      }}
-                    >
-                      <p className="text-base font-semibold" style={{ color: '#16425B' }}>
-                        {modele.libelle || 'Modèle sans libellé'}
-                      </p>
-                      <p className="mt-1 text-sm" style={{ color: '#3A7CA5' }}>
-                        Code : {modele.code || '—'}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div
-                  className="rounded-[20px] border border-dashed p-4 text-sm"
-                  style={{
-                    borderColor: '#81C3D7',
-                    color: '#3A7CA5',
-                    backgroundColor: '#FFFFFF',
-                  }}
-                >
-                  Aucun modèle lié à cette famille.
-                </div>
-              )}
-            </section>
-
-            <section
-              className="rounded-[24px] border p-5"
-              style={{
-                backgroundColor: '#F7FAFB',
-                borderColor: '#D9DCD6',
-              }}
-            >
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-bold" style={{ color: '#16425B' }}>
-                  Sous-familles
-                </h3>
-                <span
-                  className="rounded-full px-3 py-1 text-xs font-semibold"
-                  style={{
-                    backgroundColor: '#81C3D7',
-                    color: '#16425B',
-                  }}
-                >
-                  {node.children.length}
-                </span>
-              </div>
-
-              {node.children.length > 0 ? (
-                <div className="space-y-4">
-                  {node.children.map((child) => (
-                    <FamilleCard
-                      key={child.idFamille}
-                      node={child}
-                      level={level + 1}
-                      famillesMap={famillesMap}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div
-                  className="rounded-[20px] border border-dashed p-4 text-sm"
-                  style={{
-                    borderColor: '#81C3D7',
-                    color: '#3A7CA5',
-                    backgroundColor: '#FFFFFF',
-                  }}
-                >
-                  Aucune sous-famille.
-                </div>
-              )}
-            </section>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return result;
 }
 
 export default function FamillesPage() {
+  const router = useRouter();
+  
   const [familles, setFamilles] = useState<FamilleApi[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [showModeles, setShowModeles] = useState<Record<number, boolean>>({});
+  const [filterType, setFilterType] = useState<'all' | 'parents' | 'withModels'>(
+    'all',
+  );
 
   useEffect(() => {
     async function fetchFamilles() {
@@ -344,12 +94,24 @@ export default function FamillesPage() {
         setError(null);
 
         const response = await fetch('http://localhost:3001/familles');
+
         if (!response.ok) {
           throw new Error('Impossible de charger les familles.');
         }
 
         const data = await response.json();
         setFamilles(data);
+
+        const initialExpandedState: Record<number, boolean> = {};
+        const initialModelesState: Record<number, boolean> = {};
+
+        for (const item of data) {
+          initialExpandedState[item.idFamille] = true;
+          initialModelesState[item.idFamille] = true;
+        }
+
+        setExpanded(initialExpandedState);
+        setShowModeles(initialModelesState);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Erreur inconnue');
       } finally {
@@ -360,197 +122,672 @@ export default function FamillesPage() {
     fetchFamilles();
   }, []);
 
+  const famillesMap = useMemo(() => {
+    const map = new Map<number, FamilleApi>();
+
+    for (const famille of familles) {
+      map.set(famille.idFamille, famille);
+    }
+
+    return map;
+  }, [familles]);
+
   const filteredFamilles = useMemo(() => {
     const term = search.toLowerCase().trim();
 
-    if (!term) return familles;
-
     return familles.filter((famille) => {
-      const code = famille.code?.toLowerCase() || '';
-      const libelle = famille.libelle?.toLowerCase() || '';
-      const modeles = famille.modele || [];
+      const parent = famille.parent_id ? famillesMap.get(famille.parent_id) : null;
 
-      return (
-        code.includes(term) ||
-        libelle.includes(term) ||
-        modeles.some((m) =>
-          `${m.code || ''} ${m.libelle || ''}`.toLowerCase().includes(term),
-        )
-      );
+      const matchesSearch =
+        !term ||
+        (famille.code || '').toLowerCase().includes(term) ||
+        (famille.libelle || '').toLowerCase().includes(term) ||
+        (parent?.libelle || '').toLowerCase().includes(term) ||
+        (famille.modele || []).some(
+          (m) =>
+            (m.libelle || '').toLowerCase().includes(term) ||
+            (m.code || '').toLowerCase().includes(term),
+        );
+
+      const matchesFilter =
+        filterType === 'all' ||
+        (filterType === 'parents' && famille.parent_id === null) ||
+        (filterType === 'withModels' && (famille.modele?.length || 0) > 0);
+
+      return matchesSearch && matchesFilter;
     });
-  }, [familles, search]);
+  }, [familles, famillesMap, search, filterType]);
 
-  const famillesMap = useMemo(() => {
-    const map = new Map<number, FamilleApi>();
-    for (const famille of filteredFamilles) {
-      map.set(famille.idFamille, famille);
-    }
-    return map;
-  }, [filteredFamilles]);
-
-  const tree = useMemo(() => buildFamilleTree(filteredFamilles), [filteredFamilles]);
-
-  const totalFamilles = filteredFamilles.length;
-  const totalModeles = filteredFamilles.reduce(
-    (sum, famille) => sum + (famille.modele?.length || 0),
-    0,
+  const filteredIds = useMemo(
+    () => new Set(filteredFamilles.map((f) => f.idFamille)),
+    [filteredFamilles],
   );
 
+  const tree = useMemo(() => {
+    const fullTree = buildFamilleTree(familles);
+
+    if (!search.trim() && filterType === 'all') return fullTree;
+
+    function keepMatchingBranches(nodes: FamilleNode[]): FamilleNode[] {
+      const result: FamilleNode[] = [];
+
+      for (const node of nodes) {
+        const filteredChildren = keepMatchingBranches(node.children);
+        const selfMatches = filteredIds.has(node.idFamille);
+
+        if (selfMatches || filteredChildren.length > 0) {
+          result.push({
+            ...node,
+            children: filteredChildren,
+          });
+        }
+      }
+
+      return result;
+    }
+
+    return keepMatchingBranches(fullTree);
+  }, [familles, filteredIds, search, filterType]);
+
+  const flatRows = useMemo(() => flattenTree(tree), [tree]);
+
+  function toggleRow(id: number) {
+    setExpanded((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  }
+
+  function toggleModeles(id: number) {
+    setShowModeles((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  }
+
+  function isVisible(row: { node: FamilleNode; level: number }) {
+    let currentParentId = row.node.parent_id;
+
+    while (currentParentId) {
+      if (!expanded[currentParentId]) return false;
+      currentParentId = famillesMap.get(currentParentId)?.parent_id ?? null;
+    }
+
+    return true;
+  }
+
+  const visibleRows = flatRows.filter(isVisible);
+
+  const exportData = visibleRows.map(({ node }) => ({
+    famille: node.libelle || '',
+    codeFamille: node.code || '',
+    parentFamille:
+      node.parent_id && famillesMap.has(node.parent_id)
+        ? famillesMap.get(node.parent_id)?.libelle || ''
+        : '',
+    sousFamilles: node.children.length,
+    modeles: (node.modele || []).map((m) => m.libelle || '').join(' | '),
+  }));
+
+  function handleExport() {
+    const headers = [
+      'Famille',
+      'Code famille',
+      'Parent famille',
+      'Sous-familles',
+      'Modèles',
+    ];
+
+    const rows = exportData.map((item) => [
+      item.famille,
+      item.codeFamille,
+      item.parentFamille,
+      String(item.sousFamilles),
+      item.modeles,
+    ]);
+
+    const csv = [
+      headers.join(';'),
+      ...rows.map((row) =>
+        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';'),
+      ),
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.setAttribute('download', 'arborescence_familles_bmt.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleCreateFamille() {
+    router.push('/familles/nouvelle');
+  }
+
+  function handleViewFamille(idFamille: number) {
+  router.push(`/familles/${idFamille}`);
+}
+
+function handleEditFamille(idFamille: number) {
+  router.push(`/familles/${idFamille}/modifier`);
+}
+  async function handleDeleteFamille(idFamille: number) {
+  const confirmed = window.confirm(
+    'Voulez-vous vraiment supprimer cette famille ?',
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(`http://localhost:3001/familles/${idFamille}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      throw new Error('Impossible de supprimer la famille.');
+    }
+
+    setFamilles((prev) => prev.filter((f) => f.idFamille !== idFamille));
+  } catch (err) {
+    alert(err instanceof Error ? err.message : 'Erreur inconnue');
+  }
+}
+
+
+  function handleViewModele(modeleId: number) {
+    console.log('Voir modèle', modeleId);
+  }
+
+  function handleEditModele(modeleId: number) {
+    console.log('Modifier modèle', modeleId);
+  }
+
+  function handleDeleteModele(modeleId: number) {
+    console.log('Supprimer modèle', modeleId);
+  }
+
   return (
-    <main
-      className="min-h-screen p-6"
+    <div
+      className="min-h-full p-5"
       style={{
-        background:
-          'linear-gradient(180deg, #EEF5F8 0%, #D9DCD6 100%)',
+        background: 'linear-gradient(180deg, #F7FAFC 0%, #EEF4F7 100%)',
       }}
     >
       <div className="mx-auto max-w-7xl">
-        <section
-  className="mb-6 rounded-[32px] border px-8 py-7 shadow-sm"
-          style={{
-            background: 'linear-gradient(135deg, #16425B 0%, #2F6690 55%, #3A7CA5 100%)',
-            borderColor: '#2F6690',
-          }}
-        >
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-            <div>
-              <p
-                className="mb-2 text-sm font-semibold uppercase tracking-[0.2em]"
-                style={{ color: '#81C3D7' }}
-              >
-                BMT · Module Équipement
-              </p>
+        <div className="mb-4">
+          <p
+            className="text-[10px] font-semibold uppercase tracking-[0.26em]"
+            style={{ color: '#6E8CA0' }}
+          >
+            BMT · Module équipement
+          </p>
 
-              <h1 className="text-3xl font-bold tracking-tight text-white xl:text-4xl">
-                Arborescence des familles
-              </h1>
-
-              <p className="mt-3 max-w-3xl text-sm leading-7 xl:text-base" style={{ color: '#D9DCD6' }}>
-                Visualisation hiérarchique des familles, sous-familles et modèles
-                du parc équipement du port BMT.
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div
-                className="rounded-[24px] px-5 py-4"
-                style={{ backgroundColor: 'rgba(255,255,255,0.12)' }}
-              >
-                <p className="text-xs uppercase tracking-wide" style={{ color: '#D9DCD6' }}>
-                  Familles affichées
-                </p>
-                <p className="mt-1 text-2xl font-bold text-white">{totalFamilles}</p>
-              </div>
-
-              <div
-                className="rounded-[24px] px-5 py-4"
-                style={{ backgroundColor: 'rgba(255,255,255,0.12)' }}
-              >
-                <p className="text-xs uppercase tracking-wide" style={{ color: '#D9DCD6' }}>
-                  Modèles visibles
-                </p>
-                <p className="mt-1 text-2xl font-bold text-white">{totalModeles}</p>
-              </div>
-            </div>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <h1
+              className="text-[28px] font-bold leading-tight"
+              style={{ color: '#183B56' }}
+            >
+              Arborescence famille
+            </h1>
           </div>
-        </section>
 
-        <section
-          className="mb-6 rounded-[28px] border p-5 shadow-sm"
-          style={{
-            backgroundColor: '#FFFFFF',
-            borderColor: '#D9DCD6',
-          }}
-        >
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-lg font-bold" style={{ color: '#16425B' }}>
-                Recherche dans l’arborescence
-              </h2>
-              <p className="mt-1 text-sm" style={{ color: '#3A7CA5' }}>
-                Recherche par code famille, libellé ou modèle.
-              </p>
-            </div>
-
-           <div className="flex w-full flex-col gap-3 lg:max-w-2xl lg:flex-row">
-  <input
-    type="text"
-    placeholder="Ex. pompe, FAM001, centrifuge..."
-    value={search}
-    onChange={(e) => setSearch(e.target.value)}
-    className="w-full rounded-2xl border px-4 py-3 outline-none transition"
-    style={{
-      borderColor: '#81C3D7',
-      color: '#16425B',
-      backgroundColor: '#F8FBFC',
-    }}
-  />
-
-  <button
-    type="button"
-    className="rounded-2xl px-5 py-3 text-sm font-semibold transition hover:opacity-90"
-    style={{
-      backgroundColor: '#2F6690',
-      color: '#FFFFFF',
-    }}
-  >
-    + Ajouter une famille
-  </button>
-</div>
-          </div>
-        </section>
+          <p className="mt-2 text-[14px]" style={{ color: '#6B8596' }}>
+            Gestion des familles, sous-familles et modèles associés.
+          </p>
+        </div>
 
         {loading && (
-          <div
-            className="rounded-[28px] border p-6 shadow-sm"
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderColor: '#D9DCD6',
-              color: '#16425B',
-            }}
-          >
+          <div className="py-6 text-[13px]" style={{ color: '#5F7C90' }}>
             Chargement des familles...
           </div>
         )}
 
         {error && (
           <div
-            className="rounded-[28px] border p-6 shadow-sm"
+            className="rounded-xl border px-4 py-3 text-[13px]"
             style={{
-              backgroundColor: '#FFF4F4',
               borderColor: '#E8B4B4',
               color: '#8A1F1F',
+              backgroundColor: 'rgba(255,255,255,0.9)',
             }}
           >
             {error}
           </div>
         )}
 
-        {!loading && !error && tree.length === 0 && (
+        {!loading && !error && (
           <div
-            className="rounded-[28px] border p-6 shadow-sm"
+            className="overflow-hidden rounded-[20px] border"
             style={{
+              borderColor: '#E4EBF0',
               backgroundColor: '#FFFFFF',
-              borderColor: '#D9DCD6',
-              color: '#16425B',
+              boxShadow: '0 8px 24px rgba(15, 35, 55, 0.05)',
             }}
           >
-            Aucune famille trouvée.
-          </div>
-        )}
+            <div
+              className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between"
+              style={{
+                borderColor: '#EEF3F6',
+                backgroundColor: '#FFFFFF',
+              }}
+            >
+              <div className="flex flex-1 flex-col gap-3 lg:flex-row lg:items-center">
+                <div
+                  className="flex h-[42px] w-full items-center gap-2 rounded-[12px] border px-3 lg:max-w-[320px]"
+                  style={{
+                    borderColor: '#E6EDF2',
+                    backgroundColor: '#FFFFFF',
+                  }}
+                >
+                  <Search size={15} color="#8AA0AF" />
+                  <input
+                    type="text"
+                    placeholder="Rechercher"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full bg-transparent text-[13px] outline-none placeholder:text-slate-400"
+                    style={{ color: '#183B56' }}
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch('')}
+                      className="flex h-6 w-6 items-center justify-center rounded-full transition hover:bg-slate-100"
+                      title="Effacer"
+                    >
+                      <X size={14} color="#91A3B0" />
+                    </button>
+                  )}
+                </div>
 
-        {!loading && !error && tree.length > 0 && (
-          <div className="space-y-5">
-            {tree.map((node) => (
-              <FamilleCard
-                key={node.idFamille}
-                node={node}
-                famillesMap={famillesMap}
-              />
-            ))}
+                <div
+                  className="flex h-[42px] min-w-[220px] items-center rounded-[12px] border px-3"
+                  style={{
+                    borderColor: '#E6EDF2',
+                    backgroundColor: '#FFFFFF',
+                  }}
+                >
+                  <select
+                    value={filterType}
+                    onChange={(e) =>
+                      setFilterType(
+                        e.target.value as 'all' | 'parents' | 'withModels',
+                      )
+                    }
+                    className="w-full appearance-none bg-transparent text-[13px] font-medium outline-none"
+                    style={{ color: '#183B56' }}
+                  >
+                    <option value="all">Toutes les familles</option>
+                    <option value="parents">Familles parentes</option>
+                    <option value="withModels">Familles avec modèles</option>
+                  </select>
+                  <ChevronDown size={15} color="#91A3B0" />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleExport}
+                  className="inline-flex h-[42px] items-center gap-2 rounded-[12px] border px-4 text-[13px] font-medium transition hover:opacity-95"
+                  style={{
+                    borderColor: '#E6EDF2',
+                    backgroundColor: '#FFFFFF',
+                    color: '#183B56',
+                  }}
+                >
+                  <Download size={14} />
+                  <span>Exporter</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCreateFamille}
+                className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[12px] border transition hover:bg-slate-50"
+                style={{
+                  borderColor: '#E6EDF2',
+                  backgroundColor: '#FFFFFF',
+                  color: '#183B56',
+                }}
+                title="Nouvelle famille"
+              >
+                <Plus size={18} />
+              </button>
+            </div>
+
+            <div
+              className="grid grid-cols-12 gap-3 border-b px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.12em]"
+              style={{
+                borderColor: '#EEF3F6',
+                color: '#7B93A4',
+                backgroundColor: '#FAFCFD',
+              }}
+            >
+              <div className="col-span-3">Famille</div>
+              <div className="col-span-2">Code famille</div>
+              <div className="col-span-2">Libellé famille</div>
+              <div className="col-span-2">Parent famille</div>
+              <div className="col-span-1 text-center">Sous-familles</div>
+              <div className="col-span-2 text-center">Actions</div>
+            </div>
+
+            {visibleRows.length === 0 ? (
+              <div className="px-5 py-4 text-[13px]" style={{ color: '#183B56' }}>
+                Aucune famille trouvée.
+              </div>
+            ) : (
+              <div>
+                {visibleRows.map(({ node, level }) => {
+                  const parentFamille =
+                    node.parent_id && famillesMap.has(node.parent_id)
+                      ? famillesMap.get(node.parent_id)
+                      : null;
+
+                  const hasChildren = node.children.length > 0;
+                  const hasModeles = (node.modele?.length || 0) > 0;
+                  const canToggle = hasChildren || hasModeles;
+
+                  return (
+                    <div
+                      key={node.idFamille}
+                      className="border-b last:border-b-0"
+                      style={{ borderColor: '#F0F4F7' }}
+                    >
+                      <div className="grid grid-cols-12 gap-3 px-5 py-3 text-[13px]">
+                        <div
+                          className="col-span-3 flex items-center gap-3"
+                          style={{ paddingLeft: `${level * 18}px` }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!canToggle) return;
+
+                              if (hasChildren) {
+                                toggleRow(node.idFamille);
+                              }
+
+                              if (hasModeles) {
+                                toggleModeles(node.idFamille);
+                              }
+                            }}
+                            className="flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold"
+                            style={{
+                              borderColor: canToggle ? '#DCE6EC' : '#E8EEF2',
+                              backgroundColor: '#FFFFFF',
+                              color: canToggle ? '#183B56' : '#9BB0BD',
+                            }}
+                            title={
+                              canToggle
+                                ? expanded[node.idFamille] !== false ||
+                                  showModeles[node.idFamille] !== false
+                                  ? 'Replier'
+                                  : 'Déplier'
+                                : 'Aucun contenu à afficher'
+                            }
+                          >
+                            {canToggle &&
+                            ((hasChildren && expanded[node.idFamille]) ||
+                              (hasModeles && showModeles[node.idFamille]))
+                              ? '−'
+                              : canToggle
+                              ? '+'
+                              : '↳'}
+                          </button>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="font-medium"
+                                style={{ color: '#183B56' }}
+                              >
+                                {node.libelle || 'Sans libellé'}
+                              </span>
+
+                              {hasModeles && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleModeles(node.idFamille)}
+                                  className="rounded-full px-2 py-0.5 text-[10px] font-medium transition hover:bg-slate-100"
+                                  style={{
+                                    backgroundColor: '#F3F7F9',
+                                    color: '#6B8596',
+                                  }}
+                                  title={
+                                    showModeles[node.idFamille]
+                                      ? 'Masquer les modèles'
+                                      : 'Afficher les modèles'
+                                  }
+                                >
+                                  {showModeles[node.idFamille]
+                                    ? 'Masquer modèles'
+                                    : 'Afficher modèles'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="col-span-2 flex items-center">
+                          <span
+                            className="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                            style={{
+                              backgroundColor: '#F3F7F9',
+                              color: '#48667B',
+                            }}
+                          >
+                            {node.code || '—'}
+                          </span>
+                        </div>
+
+                        <div
+                          className="col-span-2 flex items-center"
+                          style={{ color: '#48667B' }}
+                        >
+                          {node.libelle || '—'}
+                        </div>
+
+                        <div
+                          className="col-span-2 flex items-center"
+                          style={{ color: '#48667B' }}
+                        >
+                          {parentFamille?.libelle || 'Aucune'}
+                        </div>
+
+                        <div className="col-span-1 flex items-center justify-center">
+                          <span
+                            className="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                            style={{
+                              backgroundColor: '#F3F7F9',
+                              color: '#48667B',
+                            }}
+                          >
+                            {node.children.length}
+                          </span>
+                        </div>
+
+                        <div className="col-span-2 flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleViewFamille(node.idFamille)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full border"
+                            style={{
+                              borderColor: '#E5EDF2',
+                              backgroundColor: '#FFFFFF',
+                              color: '#6B8596',
+                            }}
+                            title="Voir"
+                          >
+                            <Eye size={15} />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleEditFamille(node.idFamille)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full border"
+                            style={{
+                              borderColor: '#E5EDF2',
+                              backgroundColor: '#FFFFFF',
+                              color: '#6B8596',
+                            }}
+                            title="Modifier"
+                          >
+                            <Pencil size={15} />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteFamille(node.idFamille)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full border"
+                            style={{
+                              borderColor: '#F0D7D7',
+                              backgroundColor: '#FFF8F8',
+                              color: '#B75B5B',
+                            }}
+                            title="Supprimer"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {hasModeles && showModeles[node.idFamille] && (
+                        <div
+                          className="border-t px-5 py-3"
+                          style={{
+                            borderColor: '#F4F7F9',
+                            backgroundColor: '#FCFDFE',
+                          }}
+                        >
+                          <div
+                            className="mb-3 flex items-center gap-2"
+                            style={{ paddingLeft: `${level * 18 + 38}px` }}
+                          >
+                            <span
+                              className="text-[11px] font-semibold uppercase tracking-[0.08em]"
+                              style={{ color: '#7B93A4' }}
+                            >
+                              Modèles
+                            </span>
+
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                              style={{
+                                backgroundColor: '#EEF4F7',
+                                color: '#48667B',
+                              }}
+                            >
+                              {node.modele!.length}
+                            </span>
+                          </div>
+
+                          <div
+                            className="flex flex-col gap-2"
+                            style={{ paddingLeft: `${level * 18 + 38}px` }}
+                          >
+                            {node.modele!.map((modele) => (
+                              <div
+                                key={modele.idModele}
+                                className="flex items-center justify-between gap-3 rounded-[12px] border px-3 py-2.5 text-[12px]"
+                                style={{
+                                  borderColor: '#E8EEF2',
+                                  backgroundColor: '#FFFFFF',
+                                  color: '#48667B',
+                                  width: '100%',
+                                  maxWidth: '760px',
+                                }}
+                              >
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span
+                                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-medium"
+                                    style={{
+                                      backgroundColor: '#EFF4F7',
+                                      color: '#48667B',
+                                    }}
+                                  >
+                                    ◇
+                                  </span>
+
+                                  <span
+                                    className="truncate text-[13px] font-medium"
+                                    style={{ color: '#183B56' }}
+                                  >
+                                    {modele.libelle || 'Sans libellé'}
+                                  </span>
+
+                                  {modele.code && (
+                                    <span
+                                      className="rounded-full px-2 py-0.5 text-[11px]"
+                                      style={{
+                                        backgroundColor: '#F3F7F9',
+                                        color: '#6B8596',
+                                      }}
+                                    >
+                                      {modele.code}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex shrink-0 items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewModele(modele.idModele)}
+                                    className="flex h-8 w-8 items-center justify-center rounded-full border transition hover:bg-slate-50"
+                                    style={{
+                                      borderColor: '#E5EDF2',
+                                      backgroundColor: '#FFFFFF',
+                                      color: '#6B8596',
+                                    }}
+                                    title="Voir le modèle"
+                                  >
+                                    <Eye size={15} />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditModele(modele.idModele)}
+                                    className="flex h-8 w-8 items-center justify-center rounded-full border transition hover:bg-slate-50"
+                                    style={{
+                                      borderColor: '#E5EDF2',
+                                      backgroundColor: '#FFFFFF',
+                                      color: '#6B8596',
+                                    }}
+                                    title="Modifier le modèle"
+                                  >
+                                    <Pencil size={15} />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteModele(modele.idModele)}
+                                    className="flex h-8 w-8 items-center justify-center rounded-full border transition hover:bg-red-50"
+                                    style={{
+                                      borderColor: '#F0D7D7',
+                                      backgroundColor: '#FFF8F8',
+                                      color: '#B75B5B',
+                                    }}
+                                    title="Supprimer le modèle"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }

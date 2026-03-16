@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+
 
 @Injectable()
 export class FamilleService {
@@ -16,42 +17,50 @@ export class FamilleService {
     });
   }
 
+  async findOne(id: number) {
+    const famille = await this.prisma.famille.findUnique({
+      where: { idFamille: id },
+      include: { modele: true },
+    });
+
+    if (!famille) {
+      throw new NotFoundException('Famille introuvable');
+    }
+
+    return famille;
+  }
+
   create(data: { code?: string; libelle?: string; parent_id?: number | null }) {
     return this.prisma.famille.create({
-      data,
-    });
-  }
-}
-/*import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-
-@Injectable()
-export class FamilleService {
-  constructor(private readonly prisma: PrismaService) {}
-findAll() {
-  return this.prisma.famille.findMany({
-    where: {
-      parent_id: {
-        not: null,
+      data: {
+        code: data.code,
+        libelle: data.libelle,
+        parent_id: data.parent_id ?? null,
       },
-    },
-   /* include: {
-      famille: true,
-    }, 
-  });
-}
-  /*findAll() {
-  return this.prisma.famille.findMany({
-    include: {
-       famille: true,
-       other_famille: true,
-    },
-  });
-} 
-
-  create(data: { code?: string; libelle?: string }) {
-    return this.prisma.famille.create({
-      data,
     });
   }
-}*/
+
+  async update(
+    id: number,
+    data: { code?: string; libelle?: string; parent_id?: number | null },
+  ) {
+    await this.findOne(id);
+
+    return this.prisma.famille.update({
+      where: { idFamille: id },
+      data: {
+        code: data.code,
+        libelle: data.libelle,
+        parent_id: data.parent_id ?? null,
+      },
+    });
+  }
+
+  async remove(id: number) {
+    await this.findOne(id);
+
+    return this.prisma.famille.delete({
+      where: { idFamille: id },
+    });
+  }
+}

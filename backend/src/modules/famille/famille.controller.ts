@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { FamilleService } from './famille.service';
 
 @Controller('familles')
@@ -10,8 +19,38 @@ export class FamilleController {
     return this.familleService.findAll();
   }
 
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.familleService.findOne(id);
+  }
+
   @Post()
-  create(@Body() body: { code?: string; libelle?: string }) {
-    return this.familleService.create(body);
+  create(
+    @Body()
+    body: { code?: string; libelle?: string; parent_id?: number | null },
+  ) {
+    return this.familleService.create({
+      code: body.code,
+      libelle: body.libelle,
+      parent_id: body.parent_id ?? null,
+    });
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body()
+    body: { code?: string; libelle?: string; parent_id?: number | null },
+  ) {
+    return this.familleService.update(id, {
+      code: body.code,
+      libelle: body.libelle,
+      parent_id: body.parent_id ?? null,
+    });
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.familleService.remove(id);
   }
 }
