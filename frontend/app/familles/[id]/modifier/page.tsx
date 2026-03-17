@@ -1,95 +1,34 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { ChevronLeft, Save } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 
-type Famille = {
-  idFamille: number;
-  code: string | null;
-  libelle: string | null;
-  parent_id: number | null;
-};
+import { FamilleForm, useEditFamilleForm } from '@/features/familles';
 
 export default function ModifierFamillePage() {
   const router = useRouter();
   const params = useParams();
-  const id = params.id;
+  const id = String(params.id);
 
-  const [code, setCode] = useState('');
-  const [libelle, setLibelle] = useState('');
-  const [parentId, setParentId] = useState('');
-  const [familles, setFamilles] = useState<Famille[]>([]);
+  const {
+    values,
+    familles,
+    loading,
+    loadingParents,
+    saving,
+    error,
+    success,
+    setCode,
+    setLibelle,
+    setParentId,
+    handleSubmit,
+  } = useEditFamilleForm({
+    familleId: id,
+    onSuccess: () => router.push(`/familles/${id}`),
+  });
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const [familleRes, famillesRes] = await Promise.all([
-          fetch(`http://localhost:3001/familles/${id}`),
-          fetch('http://localhost:3001/familles'),
-        ]);
-
-        if (!familleRes.ok) {
-          throw new Error('Impossible de charger la famille.');
-        }
-
-        if (!famillesRes.ok) {
-          throw new Error('Impossible de charger les familles.');
-        }
-
-        const famille = await familleRes.json();
-        const allFamilles = await famillesRes.json();
-
-        setCode(famille.code || '');
-        setLibelle(famille.libelle || '');
-        setParentId(famille.parent_id ? String(famille.parent_id) : '');
-        setFamilles(allFamilles.filter((f: Famille) => String(f.idFamille) !== String(id)));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erreur inconnue');
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    if (id) fetchData();
-  }, [id]);
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
-    try {
-      setSaving(true);
-      setError(null);
-
-      const response = await fetch(`http://localhost:3001/familles/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          code: code.trim(),
-          libelle: libelle.trim(),
-          parent_id: parentId ? Number(parentId) : null,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Impossible de modifier la famille.');
-      }
-
-      router.push(`/familles/${id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
-    } finally {
-      setSaving(false);
-    }
+  function handleBack() {
+    router.push(`/familles/${id}`);
   }
 
   if (loading) {
@@ -97,73 +36,79 @@ export default function ModifierFamillePage() {
   }
 
   return (
-    <div className="min-h-full p-5">
+    <div
+      className="min-h-full p-5"
+      style={{
+        background: 'linear-gradient(180deg, #F7FAFC 0%, #EEF4F7 100%)',
+      }}
+    >
       <div className="mx-auto max-w-4xl">
-        <div className="mb-5 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Modifier famille</h1>
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <div>
+            <p
+              className="text-[10px] font-semibold uppercase tracking-[0.26em]"
+              style={{ color: '#6E8CA0' }}
+            >
+              BMT · Module équipement
+            </p>
+
+            <div className="mt-2 flex items-center gap-3">
+              <h1
+                className="text-[28px] font-bold leading-tight"
+                style={{ color: '#183B56' }}
+              >
+                Modifier famille
+              </h1>
+
+              <span
+                className="rounded-full px-3 py-1 text-[12px] font-medium"
+                style={{
+                  backgroundColor: '#EDF3F7',
+                  color: '#48667B',
+                  border: '1px solid #E2EAF0',
+                }}
+              >
+                Mise à jour
+              </span>
+            </div>
+
+            <p className="mt-2 text-[14px]" style={{ color: '#6B8596' }}>
+              Modifiez les informations de la famille sélectionnée.
+            </p>
+          </div>
 
           <button
             type="button"
-            onClick={() => router.push(`/familles/${id}`)}
-            className="inline-flex items-center gap-2 rounded-xl border px-4 py-2"
+            onClick={handleBack}
+            className="inline-flex h-[42px] items-center gap-2 rounded-[12px] border px-4 text-[13px] font-medium transition hover:bg-slate-50"
+            style={{
+              borderColor: '#E6EDF2',
+              backgroundColor: '#FFFFFF',
+              color: '#183B56',
+            }}
           >
             <ChevronLeft size={16} />
-            Retour
+            <span>Retour</span>
           </button>
         </div>
 
-        <div className="rounded-2xl border bg-white p-6">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="mb-2 block text-sm font-semibold">Code</label>
-              <input
-                type="text"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                className="h-11 w-full rounded-xl border px-4"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-semibold">Libellé</label>
-              <input
-                type="text"
-                value={libelle}
-                onChange={(e) => setLibelle(e.target.value)}
-                className="h-11 w-full rounded-xl border px-4"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-semibold">Famille parente</label>
-              <select
-                value={parentId}
-                onChange={(e) => setParentId(e.target.value)}
-                className="h-11 w-full rounded-xl border px-4"
-              >
-                <option value="">Aucune</option>
-                {familles.map((famille) => (
-                  <option key={famille.idFamille} value={famille.idFamille}>
-                    {famille.libelle} {famille.code ? `(${famille.code})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-white"
-              >
-                <Save size={15} />
-                {saving ? 'Enregistrement...' : 'Enregistrer'}
-              </button>
-            </div>
-          </form>
-        </div>
+        <FamilleForm
+          title="Informations de la famille"
+          subtitle="Modifiez les champs nécessaires avant l’enregistrement."
+          badge="Mise à jour"
+          submitLabel="Enregistrer"
+          values={values}
+          familles={familles}
+          loadingParents={loadingParents}
+          saving={saving}
+          error={error}
+          success={success}
+          onCodeChange={setCode}
+          onLibelleChange={setLibelle}
+          onParentChange={setParentId}
+          onSubmit={handleSubmit}
+          onCancel={handleBack}
+        />
       </div>
     </div>
   );
