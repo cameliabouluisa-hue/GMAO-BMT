@@ -141,15 +141,18 @@ model materiel {
 }
 
 model modele {
-  idModele  Int        @id @default(autoincrement())
-  code      String?    @db.VarChar(50)
-  libelle   String?    @db.VarChar(100)
-  idFamille Int?
-  gamme     gamme[]
-  materiel  materiel[]
-  famille   famille?   @relation(fields: [idFamille], references: [idFamille], onDelete: Restrict, onUpdate: Restrict, map: "modele_ibfk_1")
+  idModele    Int         @id @default(autoincrement())
+  code        String?     @db.VarChar(50)
+  libelle     String?     @db.VarChar(100)
+  idFamille   Int?
+  idEtat      Int
+  gamme       gamme[]
+  materiel    materiel[]
+  famille     famille?    @relation(fields: [idFamille], references: [idFamille], onDelete: Restrict, onUpdate: Restrict, map: "modele_ibfk_1")
+  etat_modele etat_modele @relation(fields: [idEtat], references: [idEtat], onUpdate: Restrict, map: "modele_ibfk_2")
 
   @@index([idFamille], map: "idFamille")
+  @@index([idEtat], map: "modele_ibfk_2")
 }
 
 model operation_intervention {
@@ -187,4 +190,10 @@ model type_materiel {
   idType   Int        @id @default(autoincrement())
   libelle  String?    @db.VarChar(100)
   materiel materiel[]
+}
+
+model etat_modele {
+  idEtat  Int      @id
+  libelle String?  @db.VarChar(100)
+  modele  modele[]
 }

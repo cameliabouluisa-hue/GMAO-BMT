@@ -1,5 +1,6 @@
 'use client';
 
+import { deleteModele } from '@/features/modeles/services/modele.service';
 import { useRouter } from 'next/navigation';
 
 import {
@@ -41,15 +42,26 @@ export default function FamillesPage() {
   }
 
   function handleViewModele(modeleId: number) {
-    console.log('Voir modèle', modeleId);
+    router.push(`/modeles/${modeleId}`);
   }
 
   function handleEditModele(modeleId: number) {
-    console.log('Modifier modèle', modeleId);
+    router.push(`/modeles/${modeleId}/modifier`);
   }
 
-  function handleDeleteModele(modeleId: number) {
-    console.log('Supprimer modèle', modeleId);
+  async function handleDeleteModele(modeleId: number) {
+    const confirmed = window.confirm(
+      'Voulez-vous vraiment supprimer ce modèle ?',
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await deleteModele(modeleId);
+      window.location.reload();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erreur inconnue');
+    }
   }
 
   return (

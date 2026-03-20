@@ -1,5 +1,16 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { ModeleService } from './modele.service';
+import { CreateModeleDto } from './dto/create-modele.dto';
+import { UpdateModeleDto } from './dto/update-modele.dto';
 
 @Controller('modeles')
 export class ModeleController {
@@ -10,8 +21,26 @@ export class ModeleController {
     return this.modeleService.findAll();
   }
 
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.modeleService.findOne(id);
+  }
+
   @Post()
-  create(@Body() body: { code?: string; libelle?: string; idFamille?: number }) {
-    return this.modeleService.create(body);
+  create(@Body() createModeleDto: CreateModeleDto) {
+    return this.modeleService.create(createModeleDto);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateModeleDto: UpdateModeleDto,
+  ) {
+    return this.modeleService.update(id, updateModeleDto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.modeleService.remove(id);
   }
 }
