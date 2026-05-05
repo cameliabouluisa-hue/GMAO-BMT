@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { PrismaClient } from '../../generated/prisma/client';
 
@@ -10,9 +10,9 @@ export class PrismaService
   constructor() {
     const adapter = new PrismaMariaDb({
       host: 'localhost',
-      port: 3306,
+      port: 3307,
       user: 'root',
-      password: '',
+      password: 'cam2003',
       database: 'gmao_db',
       connectionLimit: 5,
     });

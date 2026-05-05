@@ -9,44 +9,85 @@ datasource db {
 }
 
 model affectation_technicien {
-  idAffectation  Int           @id @default(autoincrement())
+  idAffectation  Int  @id @default(autoincrement())
   tempsTravail   Int?
   idTechnicien   Int?
   idIntervention Int?
-  technicien     technicien?   @relation(fields: [idTechnicien], references: [idTechnicien], onDelete: Restrict, onUpdate: Restrict, map: "affectation_technicien_ibfk_1")
-  intervention   intervention? @relation(fields: [idIntervention], references: [idIntervention], onDelete: Restrict, onUpdate: Restrict, map: "affectation_technicien_ibfk_2")
+
+  technicien   technicien?   @relation(fields: [idTechnicien], references: [idTechnicien], onDelete: Restrict, onUpdate: Restrict, map: "affectation_technicien_ibfk_1")
+  intervention intervention? @relation(fields: [idIntervention], references: [idIntervention], onDelete: Restrict, onUpdate: Restrict, map: "affectation_technicien_ibfk_2")
 
   @@index([idIntervention], map: "idIntervention")
   @@index([idTechnicien], map: "idTechnicien")
 }
 
 model article {
-  idArticle    Int            @id @default(autoincrement())
-  reference    String?        @db.VarChar(50)
-  designation  String?        @db.VarChar(100)
-  prixUnitaire Decimal?       @db.Decimal(10, 2)
-  consommation consommation[]
+  idArticle    Int      @id @default(autoincrement())
+  reference    String?  @unique @db.VarChar(50)
+  designation  String?  @db.VarChar(150)
+  description  String?  @db.Text
+  prixUnitaire Decimal? @db.Decimal(10, 2)
+
+  idFamille      Int?
+  idUniteArticle Int?
+  idModele       Int?
+
+  gereEnStock Boolean @default(true)
+  serialise   Boolean @default(false)
+  reparable   Boolean @default(false)
+  actif       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  famille      famille?       @relation(fields: [idFamille], references: [idFamille], onDelete: SetNull, onUpdate: Restrict)
+  uniteArticle unite_article? @relation(fields: [idUniteArticle], references: [idUniteArticle], onDelete: SetNull, onUpdate: Restrict)
+  modele       modele?        @relation(fields: [idModele], references: [idModele], onDelete: SetNull, onUpdate: Restrict)
+
+  consommations   consommation[]
+  materiels       materiel[]
+  etatMateriels   etat_materiel[]
+  stocks          stock_article_magasin[]
+  mouvementsStock mouvement_stock[]
+  lignesEntreeStock entree_stock_ligne[]
+  lignesSortieStock sortie_stock_ligne[]
+
+  @@index([idFamille])
+  @@index([idUniteArticle])
+  @@index([idModele])
 }
 
 model consommation {
-  idConsommation Int           @id @default(autoincrement())
+  idConsommation Int      @id @default(autoincrement())
   quantite       Int?
-  coutTotal      Decimal?      @db.Decimal(10, 2)
+  coutTotal      Decimal? @db.Decimal(10, 2)
   idArticle      Int?
   idIntervention Int?
-  article        article?      @relation(fields: [idArticle], references: [idArticle], onDelete: Restrict, onUpdate: Restrict, map: "consommation_ibfk_1")
-  intervention   intervention? @relation(fields: [idIntervention], references: [idIntervention], onDelete: Restrict, onUpdate: Restrict, map: "consommation_ibfk_2")
+
+  article      article?      @relation(fields: [idArticle], references: [idArticle], onDelete: Restrict, onUpdate: Restrict, map: "consommation_ibfk_1")
+  intervention intervention? @relation(fields: [idIntervention], references: [idIntervention], onDelete: Restrict, onUpdate: Restrict, map: "consommation_ibfk_2")
 
   @@index([idArticle], map: "idArticle")
   @@index([idIntervention], map: "idIntervention")
 }
 
+model unite_article {
+  idUniteArticle Int    @id @default(autoincrement())
+  code           String @unique @db.VarChar(20)
+  libelle        String @db.VarChar(100)
+
+  articles article[]
+
+  @@map("unite_article")
+}
+
 model demande_intervention {
-  idDemande    Int            @id @default(autoincrement())
-  dateDemande  DateTime?      @db.Date
-  description  String?        @db.Text
-  statut       String?        @db.VarChar(50)
-  idMateriel   Int?
+  idDemande   Int       @id @default(autoincrement())
+  dateDemande DateTime? @db.Date
+  description String?   @db.Text
+  statut      String?   @db.VarChar(50)
+  idMateriel  Int?
+
   materiel     materiel?      @relation(fields: [idMateriel], references: [idMateriel], onDelete: Restrict, onUpdate: Restrict, map: "demande_intervention_ibfk_1")
   intervention intervention[]
 
@@ -54,36 +95,44 @@ model demande_intervention {
 }
 
 model etat_materiel {
-  idEtat   Int        @id @default(autoincrement())
-  libelle  String?    @db.VarChar(100)
+  idEtat    Int      @id @default(autoincrement())
+  libelle   String?  @db.VarChar(100)
+  idArticle Int?
+  article   article? @relation(fields: [idArticle], references: [idArticle])
+
   materiel materiel[]
 }
 
 model etat_modele {
-  idEtat  Int      @id
-  libelle String?  @db.VarChar(100)
-  modele  modele[]
+  idEtat  Int     @id
+  libelle String? @db.VarChar(100)
+
+  modele modele[]
 }
 
 model famille {
-  idFamille     Int       @id @default(autoincrement())
-  code          String?   @db.VarChar(50)
-  libelle       String?   @db.VarChar(100)
-  parent_id     Int?
+  idFamille Int     @id @default(autoincrement())
+  code      String? @db.VarChar(50)
+  libelle   String? @db.VarChar(100)
+  parent_id Int?
+
   famille       famille?  @relation("familleTofamille", fields: [parent_id], references: [idFamille], onDelete: Restrict, onUpdate: Restrict, map: "famille_ibfk_parent")
   other_famille famille[] @relation("familleTofamille")
-  modele        modele[]
+
+  modele   modele[]
+  articles article[]
 
   @@index([parent_id], map: "famille_ibfk_parent")
 }
 
 model gamme {
-  idGamme         Int               @id @default(autoincrement())
-  code            String?           @db.VarChar(50)
-  libelle         String?           @db.VarChar(100)
-  typeMaintenance String?           @db.VarChar(50)
+  idGamme         Int      @id @default(autoincrement())
+  code            String?  @db.VarChar(50)
+  libelle         String?  @db.VarChar(100)
+  typeMaintenance String?  @db.VarChar(50)
   actif           Boolean?
   idModele        Int?
+
   modele          modele?           @relation(fields: [idModele], references: [idModele], onDelete: Restrict, onUpdate: Restrict, map: "gamme_ibfk_1")
   gamme_operation gamme_operation[]
   intervention    intervention[]
@@ -97,27 +146,30 @@ model gamme_operation {
   libelle       String? @db.VarChar(100)
   tempsStandard Int?
   idGamme       Int?
-  gamme         gamme?  @relation(fields: [idGamme], references: [idGamme], onDelete: Restrict, onUpdate: Restrict, map: "gamme_operation_ibfk_1")
+
+  gamme gamme? @relation(fields: [idGamme], references: [idGamme], onDelete: Restrict, onUpdate: Restrict, map: "gamme_operation_ibfk_1")
 
   @@index([idGamme], map: "idGamme")
 }
 
 model intervention {
-  idIntervention         Int                      @id @default(autoincrement())
-  code                   String?                  @db.VarChar(50)
-  typeMaintenance        String?                  @db.VarChar(50)
-  dateDebut              DateTime?                @db.Date
-  dateFin                DateTime?                @db.Date
-  etat                   String?                  @db.VarChar(50)
-  idMateriel             Int?
-  idDemande              Int?
-  idGamme                Int?
+  idIntervention  Int       @id @default(autoincrement())
+  code            String?   @db.VarChar(50)
+  typeMaintenance String?   @db.VarChar(50)
+  dateDebut       DateTime? @db.Date
+  dateFin         DateTime? @db.Date
+  etat            String?   @db.VarChar(50)
+  idMateriel      Int?
+  idDemande       Int?
+  idGamme         Int?
+
   affectation_technicien affectation_technicien[]
-  consommation           consommation[]
-  materiel               materiel?                @relation(fields: [idMateriel], references: [idMateriel], onDelete: Restrict, onUpdate: Restrict, map: "intervention_ibfk_1")
-  demande_intervention   demande_intervention?    @relation(fields: [idDemande], references: [idDemande], onDelete: Restrict, onUpdate: Restrict, map: "intervention_ibfk_2")
-  gamme                  gamme?                   @relation(fields: [idGamme], references: [idGamme], onDelete: Restrict, onUpdate: Restrict, map: "intervention_ibfk_3")
+  consommations          consommation[]
   operation_intervention operation_intervention[]
+
+  materiel             materiel?             @relation(fields: [idMateriel], references: [idMateriel], onDelete: Restrict, onUpdate: Restrict, map: "intervention_ibfk_1")
+  demande_intervention demande_intervention? @relation(fields: [idDemande], references: [idDemande], onDelete: Restrict, onUpdate: Restrict, map: "intervention_ibfk_2")
+  gamme                gamme?                @relation(fields: [idGamme], references: [idGamme], onDelete: Restrict, onUpdate: Restrict, map: "intervention_ibfk_3")
 
   @@index([idDemande], map: "idDemande")
   @@index([idGamme], map: "idGamme")
@@ -126,34 +178,121 @@ model intervention {
 
 model materiel {
   idMateriel      Int       @id @default(autoincrement())
-  code            String?   @db.VarChar(50)
-  numeroSerie     String?   @db.VarChar(100)
+  code            String?   @unique @db.VarChar(50)
+  numeroSerie     String?   @unique @db.VarChar(100)
   dateMiseService DateTime? @db.Date
-  idModele        Int?
-  idEtat          Int?
-  idType          Int?
-  actif           Boolean?  @default(true)
 
-  modele        modele?        @relation(fields: [idModele], references: [idModele], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_1")
-  etat_materiel etat_materiel? @relation(fields: [idEtat], references: [idEtat], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_2")
-  type_materiel type_materiel? @relation(fields: [idType], references: [idType], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_3")
+  idArticle          Int?
+  idModele           Int?
+  idEtat             Int?
+  idType             Int?
+  idPointStructure   Int?
+  idLigneEntreeStock Int?
+
+  actif Boolean? @default(true)
+
+  article         article?         @relation(fields: [idArticle], references: [idArticle], onDelete: SetNull, onUpdate: Restrict)
+  modele          modele?          @relation(fields: [idModele], references: [idModele], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_1")
+  etat_materiel   etat_materiel?   @relation(fields: [idEtat], references: [idEtat], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_2")
+  type_materiel   type_materiel?   @relation(fields: [idType], references: [idType], onDelete: Restrict, onUpdate: Restrict, map: "materiel_ibfk_3")
+
+  point_structure point_structure? @relation("PointStructureMateriels", fields: [idPointStructure], references: [idPoint], onDelete: SetNull, onUpdate: Restrict)
+
+  entreeStockLigne entree_stock_ligne? @relation(fields: [idLigneEntreeStock], references: [idLigneEntreeStock], onDelete: SetNull)
+  lignesSortieStock sortie_stock_ligne[]
 
   demande_intervention demande_intervention[]
   intervention         intervention[]
+  mouvementsStock      mouvement_stock[]
 
+  @@index([idArticle])
   @@index([idEtat], map: "idEtat")
   @@index([idModele], map: "idModele")
   @@index([idType], map: "idType")
+  @@index([idPointStructure])
+  @@index([idLigneEntreeStock])
+}
+
+model magasin {
+  idMagasin Int      @id @default(autoincrement())
+  code      String   @unique @db.VarChar(50)
+  libelle   String   @db.VarChar(100)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stocks           stock_article_magasin[]
+  mouvementsSource mouvement_stock[]       @relation("MagasinSource")
+  mouvementsDest   mouvement_stock[]       @relation("MagasinDestination")
+
+  emplacements      emplacement_magasin[]
+  lignesEntreeStock entree_stock_ligne[]
+  lignesSortieStock sortie_stock_ligne[]
+}
+
+model stock_article_magasin {
+  idStock Int @id @default(autoincrement())
+
+  idArticle Int
+  idMagasin Int
+
+  quantitePhysique   Decimal @default(0) @db.Decimal(10, 2)
+  quantiteReservee   Decimal @default(0) @db.Decimal(10, 2)
+  quantiteDisponible Decimal @default(0) @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  article article @relation(fields: [idArticle], references: [idArticle], onDelete: Restrict)
+  magasin magasin @relation(fields: [idMagasin], references: [idMagasin], onDelete: Restrict)
+
+  @@unique([idArticle, idMagasin])
+  @@index([idArticle])
+  @@index([idMagasin])
+}
+
+model mouvement_stock {
+  idMouvement Int @id @default(autoincrement())
+
+  typeMouvement String   @db.VarChar(50) // ENTREE | SORTIE | TRANSFERT | INVENTAIRE
+  dateMouvement DateTime @default(now())
+
+  quantite Decimal @db.Decimal(10, 2)
+
+  idArticle  Int
+  idMateriel Int?
+
+  idMagasinSource      Int?
+  idMagasinDestination Int?
+
+  origineType String? @db.VarChar(50) // RECEPTION | INTERVENTION | TRANSFERT
+  origineId   Int?
+
+  commentaire String? @db.Text
+
+  article  article   @relation(fields: [idArticle], references: [idArticle], onDelete: Restrict)
+  materiel materiel? @relation(fields: [idMateriel], references: [idMateriel], onDelete: SetNull)
+
+  magasinSource      magasin? @relation("MagasinSource", fields: [idMagasinSource], references: [idMagasin], onDelete: SetNull)
+  magasinDestination magasin? @relation("MagasinDestination", fields: [idMagasinDestination], references: [idMagasin], onDelete: SetNull)
+
+  @@index([idArticle])
+  @@index([idMateriel])
+  @@index([idMagasinSource])
+  @@index([idMagasinDestination])
 }
 
 model modele {
-  idModele    Int         @id @default(autoincrement())
-  code        String?     @db.VarChar(50)
-  libelle     String?     @db.VarChar(100)
-  idFamille   Int?
-  idEtat      Int
-  gamme       gamme[]
-  materiel    materiel[]
+  idModele  Int     @id @default(autoincrement())
+  code      String? @db.VarChar(50)
+  libelle   String? @db.VarChar(100)
+  idFamille Int?
+  idEtat    Int
+
+  gamme    gamme[]
+  materiel materiel[]
+  articles article[]
+
   famille     famille?    @relation(fields: [idFamille], references: [idFamille], onDelete: Restrict, onUpdate: Restrict, map: "modele_ibfk_1")
   etat_modele etat_modele @relation(fields: [idEtat], references: [idEtat], onUpdate: Restrict, map: "modele_ibfk_2")
 
@@ -162,48 +301,52 @@ model modele {
 }
 
 model operation_intervention {
-  idOperation    Int           @id @default(autoincrement())
+  idOperation    Int     @id @default(autoincrement())
   ordre          Int?
-  libelle        String?       @db.VarChar(100)
+  libelle        String? @db.VarChar(100)
   tempsPasse     Int?
   idIntervention Int?
-  intervention   intervention? @relation(fields: [idIntervention], references: [idIntervention], onDelete: Restrict, onUpdate: Restrict, map: "operation_intervention_ibfk_1")
+
+  intervention intervention? @relation(fields: [idIntervention], references: [idIntervention], onDelete: Restrict, onUpdate: Restrict, map: "operation_intervention_ibfk_1")
 
   @@index([idIntervention], map: "idIntervention")
 }
-
 model point_structure {
   idPoint     Int      @id @default(autoincrement())
   code        String?  @unique @db.VarChar(50)
   libelle     String?  @db.VarChar(100)
   description String?  @db.Text
-  typePoint   String   @db.VarChar(30) // GEOGRAPHIQUE | TECHNIQUE
+  typePoint   String   @db.VarChar(30)
   actif       Boolean? @default(true)
+
+  materiels materiel[] @relation("PointStructureMateriels")
 }
 
 model technicien {
-  idTechnicien           Int                      @id @default(autoincrement())
-  matricule              String?                  @db.VarChar(50)
-  nom                    String?                  @db.VarChar(100)
+  idTechnicien Int     @id @default(autoincrement())
+  matricule    String? @db.VarChar(50)
+  nom          String? @db.VarChar(100)
+
   affectation_technicien affectation_technicien[]
 }
 
 model type_materiel {
-  idType   Int        @id @default(autoincrement())
-  libelle  String?    @db.VarChar(100)
+  idType  Int     @id @default(autoincrement())
+  libelle String? @db.VarChar(100)
+
   materiel materiel[]
 }
 
 model lien_arborescence {
   idLien Int @id @default(autoincrement())
 
-  typeArborescence String @db.VarChar(30) // GEOGRAPHIQUE | TECHNIQUE | MATERIEL
+  typeArborescence String @db.VarChar(30)
 
-  parentType       String @db.VarChar(30) // POINT_STRUCTURE | MATERIEL
+  parentType       String @db.VarChar(30)
   parentPointId    Int?
   parentMaterielId Int?
 
-  enfantType       String @db.VarChar(30) // POINT_STRUCTURE | MATERIEL
+  enfantType       String @db.VarChar(30)
   enfantPointId    Int?
   enfantMaterielId Int?
 
@@ -217,4 +360,114 @@ model lien_arborescence {
   @@index([parentMaterielId], map: "idx_parent_materiel")
   @@index([enfantPointId], map: "idx_enfant_point")
   @@index([enfantMaterielId], map: "idx_enfant_materiel")
+}
+model entree_stock {
+  idEntreeStock Int @id @default(autoincrement())
+
+  numero        String   @unique @db.VarChar(50)
+  dateReception DateTime
+  commentaire   String?  @db.Text
+  statut        String   @default("VALIDEE") @db.VarChar(30)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lignes entree_stock_ligne[]
+
+  @@index([numero])
+}
+
+model entree_stock_ligne {
+  idLigneEntreeStock Int @id @default(autoincrement())
+
+  idEntreeStock Int
+  idArticle     Int
+  idMagasin     Int
+  idEmplacement Int?
+
+  quantite     Decimal   @db.Decimal(10, 2)
+  prixUnitaire Decimal?  @db.Decimal(10, 2)
+  numeroLot    String?   @db.VarChar(100)
+  datePeremption DateTime?
+  commentaire  String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entreeStock entree_stock @relation(fields: [idEntreeStock], references: [idEntreeStock], onDelete: Cascade)
+  article     article      @relation(fields: [idArticle], references: [idArticle], onDelete: Restrict)
+  magasin     magasin      @relation(fields: [idMagasin], references: [idMagasin], onDelete: Restrict)
+  emplacement emplacement_magasin? @relation(fields: [idEmplacement], references: [idEmplacement], onDelete: SetNull)
+
+  materiels materiel[]
+
+  @@index([idEntreeStock])
+  @@index([idArticle])
+  @@index([idMagasin])
+  @@index([idEmplacement])
+}
+
+model sortie_stock {
+  idSortieStock Int @id @default(autoincrement())
+
+  numero      String   @unique @db.VarChar(50)
+  dateSortie  DateTime
+  commentaire String?  @db.Text
+  statut      String   @default("VALIDEE") @db.VarChar(30)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lignes sortie_stock_ligne[]
+
+  @@index([numero])
+}
+
+model sortie_stock_ligne {
+  idLigneSortieStock Int @id @default(autoincrement())
+
+  idSortieStock Int
+  idArticle     Int
+  idMagasin     Int
+  idEmplacement Int?
+  idMateriel    Int?
+
+  quantite     Decimal  @db.Decimal(10, 2)
+  prixUnitaire Decimal? @db.Decimal(10, 2)
+  commentaire  String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sortieStock sortie_stock @relation(fields: [idSortieStock], references: [idSortieStock], onDelete: Cascade)
+  article     article      @relation(fields: [idArticle], references: [idArticle], onDelete: Restrict)
+  magasin     magasin      @relation(fields: [idMagasin], references: [idMagasin], onDelete: Restrict)
+  emplacement emplacement_magasin? @relation(fields: [idEmplacement], references: [idEmplacement], onDelete: SetNull)
+  materiel    materiel?    @relation(fields: [idMateriel], references: [idMateriel], onDelete: SetNull)
+
+  @@index([idSortieStock])
+  @@index([idArticle])
+  @@index([idMagasin])
+  @@index([idEmplacement])
+  @@index([idMateriel])
+}
+
+model emplacement_magasin {
+  idEmplacement Int @id @default(autoincrement())
+
+  idMagasin Int
+  code      String @db.VarChar(50)
+  libelle   String @db.VarChar(100)
+  actif     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  magasin magasin @relation(fields: [idMagasin], references: [idMagasin], onDelete: Cascade)
+
+  lignesEntreeStock entree_stock_ligne[]
+  lignesSortieStock sortie_stock_ligne[]
+
+  @@unique([idMagasin, code])
+  @@index([idMagasin])
 }

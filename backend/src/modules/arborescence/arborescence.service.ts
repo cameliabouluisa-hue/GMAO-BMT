@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateLienArborescenceDto } from './dto/create-lien-arborescence.dto';
 import { MoveNodeDto } from './dto/move-node.dto';
+import { AffecterMaterielDto } from './dto/affecter-materiel.dto';
 
 type TypeArborescence = 'GEOGRAPHIQUE' | 'TECHNIQUE' | 'MATERIEL';
 type NodeType = 'POINT_STRUCTURE' | 'MATERIEL';
@@ -23,7 +24,91 @@ export type TreeNode = {
 @Injectable()
 export class ArborescenceService {
   constructor(private readonly prisma: PrismaService) {}
+ async affecterMateriel(dto: AffecterMaterielDto) {
+    const materiel = await this.prisma.materiel.findUnique({
+      where: { idMateriel: dto.idMateriel },
+    });
 
+    if (!materiel) {
+      throw new NotFoundException('Matériel introuvable.');
+    }
+
+    const point = await this.prisma.point_structure.findUnique({
+      where: { idPoint: dto.idPoint },
+    });
+
+    if (!point) {
+      throw new NotFoundException('Point de structure introuvable.');
+    }
+
+    if (point.typePoint !== dto.typeArborescence && dto.typeArborescence !== 'MATERIEL') {
+      throw new BadRequestException(
+        `Le point sélectionné est de type ${point.typePoint}, pas ${dto.typeArborescence}.`,
+      );
+    }
+
+    const affectationExistante = await this.prisma.lien_arborescence.findFirst({
+      where: {
+        typeArborescence: dto.typeArborescence,
+        enfantType: 'MATERIEL',
+        enfantMaterielId: dto.idMateriel,
+        actif: true,
+      },
+    });
+
+    if (affectationExistante) {
+      throw new BadRequestException(
+        'Ce matériel est déjà affecté dans cette arborescence.',
+      );
+    }
+
+    return this.prisma.lien_arborescence.create({
+      data: {
+        typeArborescence: dto.typeArborescence,
+        parentType: 'POINT_STRUCTURE',
+        parentPointId: dto.idPoint,
+        parentMaterielId: null,
+        enfantType: 'MATERIEL',
+        enfantPointId: null,
+        enfantMaterielId: dto.idMateriel,
+        ordre: dto.ordre,
+        actif: true,
+      },
+    });
+  }
+
+  async desaffecterMateriel(idMateriel: number, typeArborescence?: string) {
+    const lien = await this.prisma.lien_arborescence.findFirst({
+      where: {
+        enfantType: 'MATERIEL',
+        enfantMaterielId: idMateriel,
+        actif: true,
+        ...(typeArborescence ? { typeArborescence } : {}),
+      },
+    });
+
+    if (!lien) {
+      throw new NotFoundException('Affectation active introuvable.');
+    }
+
+    return this.prisma.lien_arborescence.update({
+      where: { idLien: lien.idLien },
+      data: { actif: false },
+    });
+  }
+
+  async positionMateriel(idMateriel: number) {
+    const liens = await this.prisma.lien_arborescence.findMany({
+      where: {
+        enfantType: 'MATERIEL',
+        enfantMaterielId: idMateriel,
+        actif: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return liens;
+  }
   async createLien(dto: CreateLienArborescenceDto) {
     await this.validateLien(dto);
 

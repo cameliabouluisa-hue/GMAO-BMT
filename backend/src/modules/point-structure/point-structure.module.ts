@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
-import { PointStructureController } from './point-structure.controller';
 import { PointStructureService } from './point-structure.service';
+import { PointStructureController } from './point-structure.controller';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Module({
   controllers: [PointStructureController],
-  providers: [PointStructureService]
+  providers: [PointStructureService, PrismaService],
 })
 export class PointStructureModule {}

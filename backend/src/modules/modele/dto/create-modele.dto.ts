@@ -1,20 +1,27 @@
-import { IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CreateModeleDto {
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
   code?: string;
 
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
   libelle?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   idFamille?: number | null;
 
+  @IsNotEmpty()
+  @Type(() => Number)
   @IsInt()
-  idEtat: number;
+  idEtat!:number ;
 }
