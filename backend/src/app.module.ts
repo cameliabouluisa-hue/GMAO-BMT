@@ -5,7 +5,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { FamilleModule } from './modules/famille/famille.module';
 import { ModeleModule } from './modules/modele/modele.module';
 import { EtatModeleModule } from './modules/etat-modele/etat-modele.module';
-import { PointStructureModule } from './modules/point-structure/point-structure.module';
+import { PointsStructureModule } from './modules/point-structure/points-structure.module';
 import { ArborescenceModule } from './modules/arborescence/arborescence.module';
 import { UniteArticleModule } from './modules/unite-article/unite-article.module';
 import { ArticleModule } from './modules/article/article.module';
@@ -24,7 +24,7 @@ import { HistoriqueDeclenchementPreventifModule } from './modules/historique-dec
 import { InterventionModule } from './modules/intervention/intervention.module'; 
 import { DemandeInterventionModule } from './modules/demande-intervention/demande-intervention.module';
 @Module({
-  imports: [PrismaModule, FamilleModule,ReservationsModule,ModeleModule,EtatModeleModule,ArborescenceModule, PointStructureModule,UniteArticleModule, ArticleModule,MaterielModule, MagasinModule,InventairesPreparesModule, InventaireModule,StockModule,DemandesTransfertModule, ReapprovisionnementModule,GammeModule,PlanPreventifPredefiniModule,PlanPreventifModule,
+  imports: [PrismaModule, FamilleModule,ReservationsModule,ModeleModule,EtatModeleModule,ArborescenceModule, PointsStructureModule,UniteArticleModule, ArticleModule,MaterielModule, MagasinModule,InventairesPreparesModule, InventaireModule,StockModule,DemandesTransfertModule, ReapprovisionnementModule,GammeModule,PlanPreventifPredefiniModule,PlanPreventifModule,
     HistoriqueDeclenchementPreventifModule,
     InterventionModule,
     DemandeInterventionModule,],

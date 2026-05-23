@@ -41,6 +41,8 @@ const menuStructure: MenuModule[] = [
       { label: 'Familles', href: '/familles' },
       { label: 'Modèles', href: '/modeles' },
       { label: 'Matériels', href: '/materiels' },
+      {label: 'Points de structure', href: '/points-structure',
+}
     ],
   },
   {

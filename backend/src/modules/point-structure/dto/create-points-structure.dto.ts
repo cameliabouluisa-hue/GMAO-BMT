@@ -1,32 +1,28 @@
 import {
   IsBoolean,
-  IsIn,
-  IsNotEmpty,
+  IsEnum,
   IsOptional,
   IsString,
-  MaxLength,
 } from 'class-validator';
+
+export enum TypePointStructure {
+  GEOGRAPHIQUE = 'GEOGRAPHIQUE',
+  TECHNIQUE = 'TECHNIQUE',
+}
 
 export class CreatePointStructureDto {
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
-  code!: string;
+  code?: string;
 
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  libelle!: string;
+  libelle?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(255)
   description?: string;
 
-  @IsString()
-  @IsNotEmpty()
-  @IsIn(['GEOGRAPHIQUE', 'TECHNIQUE'])
-  typePoint!: string;
+  @IsEnum(TypePointStructure)
+  typePoint?: TypePointStructure;
 
   @IsOptional()
   @IsBoolean()

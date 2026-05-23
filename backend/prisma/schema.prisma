@@ -391,6 +391,20 @@ model point_structure {
   description String?  @db.Text
   typePoint   String   @db.VarChar(30)
   actif       Boolean? @default(true)
+  etat                    String   @default("VALIDE")
+categorie               String?
+responsable             String?
+organisation            String?
+centreCout              String?
+
+interventionsAutorisees Boolean  @default(true)
+criticite               String   @default("MOYENNE")
+observationMaintenance  String?
+
+zoneSensible            Boolean  @default(false)
+accesRestreint          Boolean  @default(false)
+epiObligatoire          Boolean  @default(false)
+consigneSecurite        String?
 
   materiels                         materiel[]                         @relation("PointStructureMateriels")
   gamme_operation                    gamme_operation[]                 @relation("GammeOperationPointStructure")

@@ -561,37 +561,61 @@ export class ArborescenceService {
   private async getMergedTree(
   rootType: 'GEOGRAPHIQUE' | 'TECHNIQUE',
 ): Promise<TreeNode[]> {
-  const [rootLiens, techLiens, materielLiens] = await Promise.all([
+  const [rootLiens, techLiens, materielLiens, rootPoints] = await Promise.all([
     this.prisma.lien_arborescence.findMany({
-      where: { typeArborescence: rootType, actif: true },
+      where: {
+        typeArborescence: rootType,
+        actif: true,
+      },
       orderBy: [{ ordre: 'asc' }, { idLien: 'asc' }],
     }),
+
     this.prisma.lien_arborescence.findMany({
-      where: { typeArborescence: 'TECHNIQUE', actif: true },
+      where: {
+        typeArborescence: 'TECHNIQUE',
+        actif: true,
+      },
       orderBy: [{ ordre: 'asc' }, { idLien: 'asc' }],
     }),
+
     this.prisma.lien_arborescence.findMany({
-      where: { typeArborescence: 'MATERIEL', actif: true },
+      where: {
+        typeArborescence: 'MATERIEL',
+        actif: true,
+      },
       orderBy: [{ ordre: 'asc' }, { idLien: 'asc' }],
+    }),
+
+    // IMPORTANT :
+    // Ici on récupère aussi les points actifs même s'ils n'ont aucun lien.
+    this.prisma.point_structure.findMany({
+      where: {
+        typePoint: rootType,
+        actif: true,
+      },
+      orderBy: {
+        code: 'asc',
+      },
     }),
   ]);
 
   const pointIds = new Set<number>();
   const materielIds = new Set<number>();
 
-  const collectIds = (
-    liens: Awaited<ReturnType<typeof this.prisma.lien_arborescence.findMany>>,
-  ) => {
+  const collectIds = (liens: typeof rootLiens) => {
     for (const lien of liens) {
       if (lien.parentType === 'POINT_STRUCTURE' && lien.parentPointId) {
         pointIds.add(lien.parentPointId);
       }
+
       if (lien.enfantType === 'POINT_STRUCTURE' && lien.enfantPointId) {
         pointIds.add(lien.enfantPointId);
       }
+
       if (lien.parentType === 'MATERIEL' && lien.parentMaterielId) {
         materielIds.add(lien.parentMaterielId);
       }
+
       if (lien.enfantType === 'MATERIEL' && lien.enfantMaterielId) {
         materielIds.add(lien.enfantMaterielId);
       }
@@ -602,15 +626,38 @@ export class ArborescenceService {
   collectIds(techLiens);
   collectIds(materielLiens);
 
+  // IMPORTANT :
+  // On ajoute les points racines même s'ils ne sont pas dans lien_arborescence.
+  for (const point of rootPoints) {
+    pointIds.add(point.idPoint);
+  }
+
   const [points, materiels] = await Promise.all([
     pointIds.size
       ? this.prisma.point_structure.findMany({
-          where: { idPoint: { in: [...pointIds] } },
+          where: {
+            idPoint: {
+              in: [...pointIds],
+            },
+            actif: true,
+          },
+          orderBy: {
+            code: 'asc',
+          },
         })
       : Promise.resolve([]),
+
     materielIds.size
       ? this.prisma.materiel.findMany({
-          where: { idMateriel: { in: [...materielIds] } },
+          where: {
+            idMateriel: {
+              in: [...materielIds],
+            },
+            actif: true,
+          },
+          orderBy: {
+            code: 'asc',
+          },
         })
       : Promise.resolve([]),
   ]);
@@ -640,9 +687,7 @@ export class ArborescenceService {
     });
   }
 
-  const buildChildrenMap = (
-    liens: Awaited<ReturnType<typeof this.prisma.lien_arborescence.findMany>>,
-  ) => {
+  const buildChildrenMap = (liens: typeof rootLiens) => {
     const map = new Map<string, string[]>();
 
     for (const lien of liens) {
@@ -655,6 +700,10 @@ export class ArborescenceService {
         lien.enfantType === 'POINT_STRUCTURE'
           ? `POINT_STRUCTURE-${lien.enfantPointId}`
           : `MATERIEL-${lien.enfantMaterielId}`;
+
+      if (!baseNodeMap.has(parentKey) || !baseNodeMap.has(childKey)) {
+        continue;
+      }
 
       if (!map.has(parentKey)) {
         map.set(parentKey, []);
@@ -671,6 +720,7 @@ export class ArborescenceService {
   const materielChildrenMap = buildChildrenMap(materielLiens);
 
   const childKeysInRoot = new Set<string>();
+
   for (const childKeys of rootChildrenMap.values()) {
     for (const key of childKeys) {
       childKeysInRoot.add(key);
@@ -678,25 +728,22 @@ export class ArborescenceService {
   }
 
   const buildNode = (key: string, visited = new Set<string>()): TreeNode => {
-    if (visited.has(key)) {
-      const existing = baseNodeMap.get(key);
-      if (!existing) {
-        throw new NotFoundException(`Nœud introuvable pour la clé ${key}`);
-      }
-      return {
-        key: existing.key,
-        id: existing.id,
-        type: existing.type,
-        code: existing.code,
-        libelle: existing.libelle,
-        typePoint: existing.typePoint,
-        children: [],
-      };
-    }
-
     const original = baseNodeMap.get(key);
+
     if (!original) {
       throw new NotFoundException(`Nœud introuvable pour la clé ${key}`);
+    }
+
+    if (visited.has(key)) {
+      return {
+        key: original.key,
+        id: original.id,
+        type: original.type,
+        code: original.code,
+        libelle: original.libelle,
+        typePoint: original.typePoint,
+        children: [],
+      };
     }
 
     const nextVisited = new Set(visited);
@@ -714,13 +761,13 @@ export class ArborescenceService {
 
     const childKeys: string[] = [];
 
-    // liens de l’arborescence demandée
+    // Enfants de l'arborescence demandée : GEOGRAPHIQUE ou TECHNIQUE.
     if (rootChildrenMap.has(key)) {
       childKeys.push(...rootChildrenMap.get(key)!);
     }
 
-    // si on est dans le géographique et que le nœud est technique,
-    // on ajoute aussi ses enfants techniques
+    // Si on est dans l'arbre géographique et qu'un point technique existe dedans,
+    // on affiche aussi ses enfants techniques.
     if (
       rootType === 'GEOGRAPHIQUE' &&
       node.type === 'POINT_STRUCTURE' &&
@@ -729,7 +776,7 @@ export class ArborescenceService {
       childKeys.push(...(techChildrenMap.get(key) ?? []));
     }
 
-    // si le nœud est un matériel, on ajoute ses enfants matériels
+    // Si le nœud est un matériel, on affiche ses composants matériels.
     if (node.type === 'MATERIEL') {
       childKeys.push(...(materielChildrenMap.get(key) ?? []));
     }
@@ -744,10 +791,24 @@ export class ArborescenceService {
   };
 
   const roots: TreeNode[] = [];
+  const rootKeysAlreadyAdded = new Set<string>();
 
+  // 1. Ajouter les points actifs sans parent comme racines.
+  // Exemple : ESSS1 doit apparaître même s'il n'a pas encore de lien.
+  for (const point of rootPoints) {
+    const key = `POINT_STRUCTURE-${point.idPoint}`;
+
+    if (!childKeysInRoot.has(key) && baseNodeMap.has(key)) {
+      roots.push(buildNode(key));
+      rootKeysAlreadyAdded.add(key);
+    }
+  }
+
+  // 2. Ajouter aussi les racines qui viennent des liens existants.
   for (const parentKey of rootChildrenMap.keys()) {
-    if (!childKeysInRoot.has(parentKey)) {
+    if (!childKeysInRoot.has(parentKey) && !rootKeysAlreadyAdded.has(parentKey)) {
       roots.push(buildNode(parentKey));
+      rootKeysAlreadyAdded.add(parentKey);
     }
   }
 
