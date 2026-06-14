@@ -76,6 +76,16 @@ export class InterventionController {
     return this.service.findByEtat(etat);
   }
 
+  @Get('referentiel/equipes')
+  findEquipesMaintenance() {
+    return this.service.findEquipesMaintenance();
+  }
+
+  @Get('referentiel/techniciens')
+  findTechniciens() {
+    return this.service.findTechniciens();
+  }
+
   /* =========================
      CONSOMMATIONS ARTICLES
   ========================= */
@@ -247,6 +257,14 @@ export class InterventionController {
     return this.service.valider(idIntervention, dto);
   }
 
+  @Post(':id/refuser')
+  refuser(
+    @Param('id', ParseIntPipe) idIntervention: number,
+    @Body() dto: ChangementEtatDto,
+  ) {
+    return this.service.refuser(idIntervention, dto);
+  }
+
   @Post(':id/demarrer')
   demarrer(
     @Param('id', ParseIntPipe) idIntervention: number,
@@ -277,6 +295,22 @@ export class InterventionController {
     @Body() dto: RefuserTravauxDto,
   ) {
     return this.service.refuserTravaux(idIntervention, dto);
+  }
+
+  @Post(':id/reprendre')
+  reprendre(
+    @Param('id', ParseIntPipe) idIntervention: number,
+    @Body() dto: ChangementEtatDto,
+  ) {
+    return this.service.reprendre(idIntervention, dto);
+  }
+
+  @Post(':id/attente-fourniture')
+  attenteFourniture(
+    @Param('id', ParseIntPipe) idIntervention: number,
+    @Body() dto: ChangementEtatDto,
+  ) {
+    return this.service.attenteFourniture(idIntervention, dto);
   }
 
   @Post(':id/solder')

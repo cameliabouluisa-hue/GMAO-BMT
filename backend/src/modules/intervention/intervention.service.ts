@@ -51,6 +51,15 @@ const interventionInclude = {
   consommations: {
     include: {
       article: true,
+      magasin: true,
+      sortieStockLigne: {
+        include: {
+          sortieStock: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
     },
   },
 
@@ -111,10 +120,31 @@ export class InterventionService {
   }
 
   async findOne(idIntervention: number) {
-    const intervention = await this.prisma.intervention.findUnique({
+    let intervention = await this.prisma.intervention.findUnique({
       where: { idIntervention },
       include: interventionInclude,
     });
+
+    if (!intervention) {
+      throw new NotFoundException('Intervention introuvable.');
+    }
+
+    if (
+      intervention.idGamme &&
+      intervention.operation_intervention.length === 0
+    ) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.syncOperationsFromGammeTx(tx, {
+          idIntervention,
+          idGamme: intervention!.idGamme!,
+        });
+      });
+
+      intervention = await this.prisma.intervention.findUnique({
+        where: { idIntervention },
+        include: interventionInclude,
+      });
+    }
 
     if (!intervention) {
       throw new NotFoundException('Intervention introuvable.');
@@ -136,6 +166,24 @@ export class InterventionService {
       where: { etat },
       include: interventionInclude,
       orderBy: { idIntervention: 'desc' },
+    });
+  }
+
+  async findEquipesMaintenance() {
+    return this.prisma.equipe_maintenance.findMany({
+      where: {
+        actif: true,
+      },
+      orderBy: [{ code: 'asc' }, { idEquipe: 'asc' }],
+    });
+  }
+
+  async findTechniciens() {
+    return this.prisma.technicien.findMany({
+      orderBy: [{ nom: 'asc' }, { matricule: 'asc' }, { idTechnicien: 'asc' }],
+      include: {
+        equipe_maintenance: true,
+      },
     });
   }
 
@@ -228,6 +276,13 @@ export class InterventionService {
         data,
       });
 
+      if (intervention.idGamme) {
+        await this.syncOperationsFromGammeTx(tx, {
+          idIntervention: intervention.idIntervention,
+          idGamme: intervention.idGamme,
+        });
+      }
+
       await this.createHistoriqueEtatTx(tx, {
         idIntervention: intervention.idIntervention,
         ancienEtat: null,
@@ -261,52 +316,65 @@ export class InterventionService {
       await this.ensureEquipeExists(dto.idEquipe);
     }
 
-    return this.prisma.intervention.update({
-      where: { idIntervention },
-      data: {
-        code: dto.code,
-        libelle: dto.libelle,
-        description: dto.description,
-        typeMaintenance: dto.typeMaintenance,
-        typeIntervention: dto.typeIntervention,
-        natureIntervention: dto.natureIntervention,
-        priorite: dto.priorite,
-        criticite: dto.criticite,
-        centreCout: dto.centreCout,
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.intervention.update({
+        where: { idIntervention },
+        data: {
+          code: dto.code,
+          libelle: dto.libelle,
+          description: dto.description,
+          typeMaintenance: dto.typeMaintenance,
+          typeIntervention: dto.typeIntervention,
+          natureIntervention: dto.natureIntervention,
+          priorite: dto.priorite,
+          criticite: dto.criticite,
+          centreCout: dto.centreCout,
 
-        idMateriel: dto.idMateriel,
-        idPointStructure: dto.idPointStructure,
-        idDemande: dto.idDemande,
-        idGamme: dto.idGamme,
-        idEquipe: dto.idEquipe,
+          idMateriel: dto.idMateriel,
+          idPointStructure: dto.idPointStructure,
+          idDemande: dto.idDemande,
+          idGamme: dto.idGamme,
+          idEquipe: dto.idEquipe,
 
-        dateDebutPrevue: this.parseDate(dto.dateDebutPrevue),
-        dateFinPrevue: this.parseDate(dto.dateFinPrevue),
-        dateDebutReelle: this.parseDate(dto.dateDebutReelle),
-        dateFinReelle: this.parseDate(dto.dateFinReelle),
-        dateSouhaiteeFin: this.parseDate(dto.dateSouhaiteeFin),
+          dateDebutPrevue: this.parseDate(dto.dateDebutPrevue),
+          dateFinPrevue: this.parseDate(dto.dateFinPrevue),
+          dateDebutReelle: this.parseDate(dto.dateDebutReelle),
+          dateFinReelle: this.parseDate(dto.dateFinReelle),
+          dateSouhaiteeFin: this.parseDate(dto.dateSouhaiteeFin),
 
-        dateFixe: dto.dateFixe,
-        aPlanifier: dto.aPlanifier,
+          dateFixe: dto.dateFixe,
+          aPlanifier: dto.aPlanifier,
 
-        materielEnPanne: dto.materielEnPanne,
-        materielIndisponible: dto.materielIndisponible,
-        arretMateriel: dto.arretMateriel,
-        receptionTravaux: dto.receptionTravaux,
+          materielEnPanne: dto.materielEnPanne,
+          materielIndisponible: dto.materielIndisponible,
+          arretMateriel: dto.arretMateriel,
+          receptionTravaux: dto.receptionTravaux,
 
-        symptome: dto.symptome,
-        cause: dto.cause,
-        remede: dto.remede,
-        diagnosticInitial: dto.diagnosticInitial,
-        instructions: dto.instructions,
+          symptome: dto.symptome,
+          cause: dto.cause,
+          remede: dto.remede,
+          diagnosticInitial: dto.diagnosticInitial,
+          instructions: dto.instructions,
 
-        chargePrevue: dto.chargePrevue,
-        chargeRevisee: dto.chargeRevisee,
-        chargeReelle: dto.chargeReelle,
-        tempsArretPrevu: dto.tempsArretPrevu,
-        tempsArretReel: dto.tempsArretReel,
-      },
-      include: interventionInclude,
+          chargePrevue: dto.chargePrevue,
+          chargeRevisee: dto.chargeRevisee,
+          chargeReelle: dto.chargeReelle,
+          tempsArretPrevu: dto.tempsArretPrevu,
+          tempsArretReel: dto.tempsArretReel,
+        },
+      });
+
+      if (updated.idGamme) {
+        await this.syncOperationsFromGammeTx(tx, {
+          idIntervention,
+          idGamme: updated.idGamme,
+        });
+      }
+
+      return tx.intervention.findUnique({
+        where: { idIntervention },
+        include: interventionInclude,
+      });
     });
   }
 
@@ -496,7 +564,6 @@ export class InterventionService {
       commentaire: dto.commentaire,
       allowedFrom: [
         INTERVENTION_ETATS.EN_PREPARATION,
-        INTERVENTION_ETATS.ATTENTE_DEVIS,
       ],
       data: {},
     });
@@ -505,22 +572,18 @@ export class InterventionService {
   async valider(idIntervention: number, dto: ChangementEtatDto) {
     const intervention = await this.findOne(idIntervention);
 
-    if (
-      intervention.etat !== INTERVENTION_ETATS.ATTENTE_VALIDATION &&
-      intervention.etat !== INTERVENTION_ETATS.EN_PREPARATION
-    ) {
+    if (intervention.etat !== INTERVENTION_ETATS.ATTENTE_VALIDATION) {
       throw new BadRequestException(
         'Cette intervention ne peut pas être validée depuis son état actuel.',
       );
     }
 
     return this.changeEtat(idIntervention, {
-      nouvelEtat: INTERVENTION_ETATS.ATTENTE_REALISATION,
+      nouvelEtat: INTERVENTION_ETATS.VALIDEE,
       action: 'VALIDATION',
       changedBy: dto.utilisateur,
       commentaire: dto.commentaire,
       allowedFrom: [
-        INTERVENTION_ETATS.EN_PREPARATION,
         INTERVENTION_ETATS.ATTENTE_VALIDATION,
       ],
       data: {
@@ -539,6 +602,21 @@ export class InterventionService {
     });
   }
 
+  async refuser(idIntervention: number, dto: ChangementEtatDto) {
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.ANNULE,
+      action: 'REFUS_VALIDATION',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [INTERVENTION_ETATS.ATTENTE_VALIDATION],
+      data: {
+        cancelledBy: dto.utilisateur,
+        dateAnnulation: new Date(),
+        motifAnnulation: dto.commentaire,
+      },
+    });
+  }
+
   async demarrer(idIntervention: number, dto: DemarrerInterventionDto) {
     return this.changeEtat(idIntervention, {
       nouvelEtat: INTERVENTION_ETATS.EN_COURS,
@@ -546,7 +624,7 @@ export class InterventionService {
       changedBy: dto.startedBy,
       commentaire: dto.commentaire,
       allowedFrom: [
-        INTERVENTION_ETATS.ATTENTE_REALISATION,
+        INTERVENTION_ETATS.VALIDEE,
         INTERVENTION_ETATS.ATTENTE_FOURNITURE,
       ],
       data: {
@@ -565,13 +643,9 @@ export class InterventionService {
       );
     }
 
-    const nouvelEtat = intervention.receptionTravaux
-      ? INTERVENTION_ETATS.TERMINE
-      : INTERVENTION_ETATS.SOLDE;
-
     return this.changeEtat(idIntervention, {
-      nouvelEtat,
-      action: intervention.receptionTravaux ? 'TERMINER' : 'TERMINER_ET_SOLDER',
+      nouvelEtat: INTERVENTION_ETATS.TERMINE,
+      action: 'TERMINER',
       changedBy: dto.reportedBy,
       commentaire: dto.commentaire,
       allowedFrom: [INTERVENTION_ETATS.EN_COURS],
@@ -581,15 +655,13 @@ export class InterventionService {
         dureeReelle: dto.dureeReelle,
         tempsArretReel: dto.tempsArretReel,
         chargeReelle: dto.dureeReelle,
-        dateCloture: !intervention.receptionTravaux ? new Date() : undefined,
-        closedBy: !intervention.receptionTravaux ? dto.reportedBy : undefined,
       },
     });
   }
 
   async accepterTravaux(idIntervention: number, dto: ChangementEtatDto) {
     return this.changeEtat(idIntervention, {
-      nouvelEtat: INTERVENTION_ETATS.SOLDE,
+      nouvelEtat: INTERVENTION_ETATS.TRAVAUX_ACCEPTES,
       action: 'ACCEPTER_TRAVAUX',
       changedBy: dto.utilisateur,
       commentaire: dto.commentaire,
@@ -597,15 +669,13 @@ export class InterventionService {
       data: {
         receptionBy: dto.utilisateur,
         dateReceptionTravaux: new Date(),
-        dateCloture: new Date(),
-        closedBy: dto.utilisateur,
       },
     });
   }
 
   async refuserTravaux(idIntervention: number, dto: RefuserTravauxDto) {
     return this.changeEtat(idIntervention, {
-      nouvelEtat: INTERVENTION_ETATS.EN_COURS,
+      nouvelEtat: INTERVENTION_ETATS.TRAVAUX_REFUSES,
       action: 'REFUSER_TRAVAUX',
       changedBy: dto.utilisateur,
       commentaire: dto.motifRefusTravaux,
@@ -616,13 +686,35 @@ export class InterventionService {
     });
   }
 
+  async reprendre(idIntervention: number, dto: ChangementEtatDto) {
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.EN_COURS,
+      action: 'REPRENDRE',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [INTERVENTION_ETATS.TRAVAUX_REFUSES],
+      data: {
+        startedBy: dto.utilisateur,
+        dateDebutReelle: new Date(),
+      },
+    });
+  }
+
+  async attenteFourniture(idIntervention: number, dto: ChangementEtatDto) {
+    return this.changeEtat(idIntervention, {
+      nouvelEtat: INTERVENTION_ETATS.ATTENTE_FOURNITURE,
+      action: 'ATTENTE_FOURNITURE',
+      changedBy: dto.utilisateur,
+      commentaire: dto.commentaire,
+      allowedFrom: [INTERVENTION_ETATS.VALIDEE],
+      data: {},
+    });
+  }
+
   async solder(idIntervention: number, dto: ChangementEtatDto) {
     const intervention = await this.findOne(idIntervention);
 
-    if (
-      intervention.receptionTravaux &&
-      intervention.etat !== INTERVENTION_ETATS.TERMINE
-    ) {
+    if (intervention.etat !== INTERVENTION_ETATS.TRAVAUX_ACCEPTES) {
       throw new BadRequestException(
         'Cette intervention nécessite une réception des travaux avant solde.',
       );
@@ -633,10 +725,7 @@ export class InterventionService {
       action: 'SOLDE',
       changedBy: dto.utilisateur,
       commentaire: dto.commentaire,
-      allowedFrom: [
-        INTERVENTION_ETATS.EN_COURS,
-        INTERVENTION_ETATS.TERMINE,
-      ],
+      allowedFrom: [INTERVENTION_ETATS.TRAVAUX_ACCEPTES],
       data: {
         dateCloture: new Date(),
         closedBy: dto.utilisateur,
@@ -648,11 +737,12 @@ export class InterventionService {
     const intervention = await this.findOne(idIntervention);
 
     if (
-      intervention.etat === INTERVENTION_ETATS.EN_COURS ||
-      intervention.etat === INTERVENTION_ETATS.TERMINE ||
-      intervention.etat === INTERVENTION_ETATS.SOLDE ||
-      intervention.etat === INTERVENTION_ETATS.ARCHIVE ||
-      intervention.etat === INTERVENTION_ETATS.ANNULE
+      ![
+        INTERVENTION_ETATS.EN_PREPARATION,
+        INTERVENTION_ETATS.ATTENTE_VALIDATION,
+        INTERVENTION_ETATS.VALIDEE,
+        INTERVENTION_ETATS.EN_COURS,
+      ].includes(intervention.etat as any)
     ) {
       throw new BadRequestException('Annulation impossible depuis cet état.');
     }
@@ -664,10 +754,9 @@ export class InterventionService {
       commentaire: dto.commentaire,
       allowedFrom: [
         INTERVENTION_ETATS.EN_PREPARATION,
-        INTERVENTION_ETATS.ATTENTE_DEVIS,
         INTERVENTION_ETATS.ATTENTE_VALIDATION,
-        INTERVENTION_ETATS.ATTENTE_FOURNITURE,
-        INTERVENTION_ETATS.ATTENTE_REALISATION,
+        INTERVENTION_ETATS.VALIDEE,
+        INTERVENTION_ETATS.EN_COURS,
       ],
       data: {
         dateAnnulation: new Date(),
@@ -1026,11 +1115,10 @@ export class InterventionService {
       });
 
       if (
-        (params.nouvelEtat === INTERVENTION_ETATS.TERMINE ||
-          params.nouvelEtat === INTERVENTION_ETATS.SOLDE) &&
+        params.nouvelEtat === INTERVENTION_ETATS.TERMINE &&
         updated.idDemande
       ) {
-        await this.synchroniserDemandeDepuisInterventionSoldeeTx(tx, {
+        await this.synchroniserDemandeDepuisInterventionTermineeTx(tx, {
           idDemande: updated.idDemande,
           changedBy: params.changedBy,
           commentaire:
@@ -1048,7 +1136,7 @@ export class InterventionService {
     });
   }
 
-  private async synchroniserDemandeDepuisInterventionSoldeeTx(
+  private async synchroniserDemandeDepuisInterventionTermineeTx(
     tx: Prisma.TransactionClient,
     data: {
       idDemande: number;
@@ -1070,16 +1158,14 @@ export class InterventionService {
       return;
     }
 
-    const nouveauStatut = demande.receptionTravaux ? 'TERMINE' : 'SOLDE';
+    const nouveauStatut = 'TERMINE';
 
     await tx.demande_intervention.update({
       where: { idDemande: data.idDemande },
       data: {
         statut: nouveauStatut,
-        dateReceptionTravaux:
-          nouveauStatut === 'SOLDE' ? new Date() : undefined,
-        receptionBy:
-          nouveauStatut === 'SOLDE' ? data.changedBy : undefined,
+        dateReceptionTravaux: new Date(),
+        receptionBy: data.changedBy,
       },
     });
 
@@ -1122,6 +1208,42 @@ export class InterventionService {
         chargeReelle: totalDuree,
         dureeReelle: totalDuree,
       },
+    });
+  }
+
+  private async syncOperationsFromGammeTx(
+    tx: Prisma.TransactionClient,
+    data: {
+      idIntervention: number;
+      idGamme: number;
+    },
+  ) {
+    const existingCount = await tx.operation_intervention.count({
+      where: {
+        idIntervention: data.idIntervention,
+      },
+    });
+
+    if (existingCount > 0) return;
+
+    const operations = await tx.gamme_operation.findMany({
+      where: {
+        idGamme: data.idGamme,
+      },
+      orderBy: [{ ordre: 'asc' }, { idOperation: 'asc' }],
+    });
+
+    if (operations.length === 0) return;
+
+    await tx.operation_intervention.createMany({
+      data: operations.map((operation) => ({
+        idIntervention: data.idIntervention,
+        ordre: operation.ordre,
+        libelle: operation.libelle,
+        description: operation.description,
+        idGammeOperationSource: operation.idOperation,
+        obligatoire: operation.obligatoire ?? false,
+      })),
     });
   }
 
