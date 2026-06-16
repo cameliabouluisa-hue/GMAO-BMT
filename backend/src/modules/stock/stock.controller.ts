@@ -10,7 +10,12 @@ import {
 } from '@nestjs/common';
 
 import { StockService } from './stock.service';
-import { EntreeStockDto } from './dto/entree-stock.dto';
+import {
+  EntreeStockDto,
+  LigneEntreeStockDto,
+  UpdateEntreeStockDto,
+  UpdateLigneEntreeStockDto,
+} from './dto/entree-stock.dto';
 import { SortieStockDto } from './dto/sortie-stock.dto';
 import { UpdateSortieStockDto } from './dto/update-sortie-stock.dto';
 import { LigneSortieStockCrudDto } from './dto/ligne-sortie-stock-crud.dto';
@@ -44,6 +49,38 @@ export class StockController {
   entreeStock(@Body() dto: EntreeStockDto) {
     return this.stockService.entreeStock(dto);
   }
+  @Patch('entrees/:id')
+updateEntree(
+  @Param('id', ParseIntPipe) id: number,
+  @Body() dto: UpdateEntreeStockDto,
+) {
+  return this.stockService.updateEntreeStock(id, dto);
+}
+
+@Post('entrees/:id/lignes')
+addEntreeLigne(
+  @Param('id', ParseIntPipe) id: number,
+  @Body() dto: LigneEntreeStockDto,
+) {
+  return this.stockService.addEntreeStockLigne(id, dto);
+}
+
+@Patch('entrees/:id/lignes/:idLigne')
+updateEntreeLigne(
+  @Param('id', ParseIntPipe) id: number,
+  @Param('idLigne', ParseIntPipe) idLigne: number,
+  @Body() dto: UpdateLigneEntreeStockDto,
+) {
+  return this.stockService.updateEntreeStockLigne(id, idLigne, dto);
+}
+
+@Delete('entrees/:id/lignes/:idLigne')
+deleteEntreeLigne(
+  @Param('id', ParseIntPipe) id: number,
+  @Param('idLigne', ParseIntPipe) idLigne: number,
+) {
+  return this.stockService.deleteEntreeStockLigne(id, idLigne);
+}
 
   @Get('sorties')
   findSorties() {

@@ -3,6 +3,7 @@ import {
   Archive,
   CheckCircle2,
   Clock3,
+  PackageCheck,
   PackageSearch,
   Play,
   RotateCcw,
@@ -18,11 +19,13 @@ import { EtatBadge, formatEtat } from './InterventionTable';
 type Props = {
   intervention: Intervention;
   actionLoading?: boolean;
+
   onDemanderValidation: () => void;
   onValider: () => void;
   onRefuser: () => void;
   onDemarrer: () => void;
   onAttenteFourniture: () => void;
+  onFournituresDisponibles: () => void;
   onTerminer: () => void;
   onAccepterTravaux: () => void;
   onRefuserTravaux: () => void;
@@ -40,6 +43,7 @@ export function InterventionWorkflowActions({
   onRefuser,
   onDemarrer,
   onAttenteFourniture,
+  onFournituresDisponibles,
   onTerminer,
   onAccepterTravaux,
   onRefuserTravaux,
@@ -48,22 +52,37 @@ export function InterventionWorkflowActions({
   onAnnuler,
   onArchiver,
 }: Props) {
-  const etat = intervention.etat;
+  const etat = (intervention.etat || '').toUpperCase();
+
   const canAskValidation = etat === 'EN_PREPARATION';
+
   const canValidate = etat === 'ATTENTE_VALIDATION';
   const canRefuse = etat === 'ATTENTE_VALIDATION';
-  const canStart = etat === 'VALIDEE' || etat === 'ATTENTE_FOURNITURE';
+
+  const canStart = ['VALIDEE', 'ATTENTE_REALISATION'].includes(etat);
+
   const canWaitSupply = etat === 'VALIDEE';
+
+  const canSuppliesAvailable = etat === 'ATTENTE_FOURNITURE';
+
   const canFinish = etat === 'EN_COURS';
+
   const canAcceptWorks = etat === 'TERMINE';
   const canRefuseWorks = etat === 'TERMINE';
+
   const canResume = etat === 'TRAVAUX_REFUSES';
+
   const canSettle = etat === 'TRAVAUX_ACCEPTES';
-  const canCancel =
-    etat === 'EN_PREPARATION' ||
-    etat === 'ATTENTE_VALIDATION' ||
-    etat === 'VALIDEE' ||
-    etat === 'EN_COURS';
+
+  const canCancel = [
+    'EN_PREPARATION',
+    'ATTENTE_VALIDATION',
+    'VALIDEE',
+    'ATTENTE_REALISATION',
+    'ATTENTE_FOURNITURE',
+    'EN_COURS',
+  ].includes(etat);
+
   const canArchive = etat === 'SOLDE';
 
   const hasActions =
@@ -72,6 +91,7 @@ export function InterventionWorkflowActions({
     canRefuse ||
     canStart ||
     canWaitSupply ||
+    canSuppliesAvailable ||
     canFinish ||
     canAcceptWorks ||
     canRefuseWorks ||
@@ -87,10 +107,12 @@ export function InterventionWorkflowActions({
           <p className="text-sm font-black uppercase tracking-[0.18em] text-slate-400">
             Workflow intervention
           </p>
+
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="text-sm font-bold text-slate-500">
-              Etat actuel
+              État actuel
             </span>
+
             <EtatBadge etat={etat} />
           </div>
         </div>
@@ -130,7 +152,7 @@ export function InterventionWorkflowActions({
               disabled={actionLoading}
               onClick={onDemarrer}
               icon={<Play size={18} />}
-              label="Demarrer"
+              label="Démarrer"
             />
           )}
 
@@ -141,6 +163,15 @@ export function InterventionWorkflowActions({
               icon={<PackageSearch size={18} />}
               label="Attente fourniture"
               variant="secondary"
+            />
+          )}
+
+          {canSuppliesAvailable && (
+            <ActionButton
+              disabled={actionLoading}
+              onClick={onFournituresDisponibles}
+              icon={<PackageCheck size={18} />}
+              label="Fournitures disponibles"
             />
           )}
 

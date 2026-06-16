@@ -31,7 +31,6 @@ type StatutFilter =
   | 'EN_PREPARATION'
   | 'ATTENTE_PRISE_EN_COMPTE'
   | 'ATTENTE_REALISATION'
-  | 'TERMINE'
   | 'REFUSE'
   | 'SOLDE'
   | 'ANNULE';
@@ -44,6 +43,8 @@ type CriticiteFilter =
   | 'MOYENNE'
   | 'ELEVEE'
   | 'CRITIQUE';
+
+type MiniStatTone = 'blue' | 'green' | 'red' | 'slate' | 'indigo';
 
 export default function DemandesInterventionPage() {
   const [demandes, setDemandes] = useState<DemandeIntervention[]>([]);
@@ -67,9 +68,10 @@ export default function DemandesInterventionPage() {
       setDemandes(data);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Erreur lors du chargement des demandes d’intervention.',
+        getApiErrorMessage(
+          err,
+          'Erreur lors du chargement des demandes d’intervention.',
+        ),
       );
     } finally {
       setLoading(false);
@@ -80,10 +82,22 @@ export default function DemandesInterventionPage() {
     loadDemandes();
   }, [loadDemandes]);
 
+  async function reloadDemandesSilently() {
+    try {
+      const data = await getDemandesIntervention();
+      setDemandes(data);
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
   const filteredDemandes = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
     return demandes.filter((demande) => {
+      const statutNormalise = normalizeDemandeStatut(demande.statut);
+
       const materielLabel = [
         demande.materiel?.code,
         demande.materiel?.libelle,
@@ -98,7 +112,7 @@ export default function DemandesInterventionPage() {
           demande.code,
           demande.description,
           demande.demandeur,
-          demande.statut,
+          statutNormalise,
           demande.priorite,
           demande.criticite,
           materielLabel,
@@ -110,7 +124,7 @@ export default function DemandesInterventionPage() {
           );
 
       const matchesStatut =
-        statutFilter === 'TOUS' || demande.statut === statutFilter;
+        statutFilter === 'TOUS' || statutNormalise === statutFilter;
 
       const matchesPriorite =
         prioriteFilter === 'TOUTES' || demande.priorite === prioriteFilter;
@@ -129,23 +143,29 @@ export default function DemandesInterventionPage() {
   }, [demandes, search, statutFilter, prioriteFilter, criticiteFilter]);
 
   const stats = useMemo(() => {
-  return {
-    total: demandes.length,
-    preparation: demandes.filter(
-      (demande) => demande.statut === 'EN_PREPARATION',
-    ).length,
-    priseEnCompte: demandes.filter(
-      (demande) => demande.statut === 'ATTENTE_PRISE_EN_COMPTE',
-    ).length,
-    realisation: demandes.filter(
-      (demande) => demande.statut === 'ATTENTE_REALISATION',
-    ).length,
-    terminees: demandes.filter((demande) => demande.statut === 'TERMINE')
-      .length,
-    refusees: demandes.filter((demande) => demande.statut === 'REFUSE')
-      .length,
-  };
-}, [demandes]);
+    return {
+      total: demandes.length,
+
+      preparation: demandes.filter(
+        (demande) => normalizeDemandeStatut(demande.statut) === 'EN_PREPARATION',
+      ).length,
+
+      priseEnCompte: demandes.filter(
+        (demande) =>
+          normalizeDemandeStatut(demande.statut) ===
+          'ATTENTE_PRISE_EN_COMPTE',
+      ).length,
+
+      realisation: demandes.filter(
+        (demande) =>
+          normalizeDemandeStatut(demande.statut) === 'ATTENTE_REALISATION',
+      ).length,
+
+      refusees: demandes.filter(
+        (demande) => normalizeDemandeStatut(demande.statut) === 'REFUSE',
+      ).length,
+    };
+  }, [demandes]);
 
   function resetFilters() {
     setSearch('');
@@ -155,25 +175,50 @@ export default function DemandesInterventionPage() {
   }
 
   async function handleDelete(demande: DemandeIntervention) {
-    const confirmed = window.confirm(
-      `Voulez-vous vraiment supprimer la demande ${
-        demande.code || `DI-${demande.idDemande}`
-      } ?`,
-    );
+    const statutNormalise = normalizeDemandeStatut(demande.statut);
 
-    if (!confirmed) return;
+    if (statutNormalise !== 'EN_PREPARATION') {
+      setError(
+        'Seules les demandes en préparation peuvent être supprimées.',
+      );
+      return;
+    }
+
+   
 
     try {
       setActionLoadingId(demande.idDemande);
       setError('');
 
       await deleteDemandeIntervention(demande.idDemande);
+
+      setDemandes((current) =>
+        current.filter((item) => item.idDemande !== demande.idDemande),
+      );
+
       await loadDemandes();
     } catch (err) {
+      const reloaded = await reloadDemandesSilently();
+
+      const demandeExisteEncore = reloaded?.some(
+        (item) => item.idDemande === demande.idDemande,
+      );
+
+      /**
+       * Cas observé :
+       * Le backend renvoie parfois une erreur alors que la suppression est déjà faite.
+       * Si après rechargement la DI n'existe plus, on ne garde pas l'erreur rouge.
+       */
+      if (reloaded && !demandeExisteEncore) {
+        setError('');
+        return;
+      }
+
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Impossible de supprimer cette demande d’intervention.',
+        getApiErrorMessage(
+          err,
+          'Impossible de supprimer cette demande d’intervention.',
+        ),
       );
     } finally {
       setActionLoadingId(null);
@@ -224,41 +269,41 @@ export default function DemandesInterventionPage() {
         </div>
 
         <div className="grid gap-3 md:grid-cols-5">
-  <MiniStat
-    icon={<ClipboardList size={18} />}
-    label="Total"
-    value={stats.total}
-    tone="blue"
-  />
+          <MiniStat
+            icon={<ClipboardList size={18} />}
+            label="Total"
+            value={stats.total}
+            tone="blue"
+          />
 
-  <MiniStat
-    icon={<FileText size={18} />}
-    label="Préparation"
-    value={stats.preparation}
-    tone="slate"
-  />
+          <MiniStat
+            icon={<FileText size={18} />}
+            label="Préparation"
+            value={stats.preparation}
+            tone="slate"
+          />
 
-  <MiniStat
-    icon={<Send size={18} />}
-    label="À prendre"
-    value={stats.priseEnCompte}
-    tone="indigo"
-  />
+          <MiniStat
+            icon={<Send size={18} />}
+            label="À prendre"
+            value={stats.priseEnCompte}
+            tone="indigo"
+          />
 
-  <MiniStat
-    icon={<CheckCircle2 size={18} />}
-    label="Réalisation"
-    value={stats.realisation}
-    tone="green"
-  />
+          <MiniStat
+            icon={<CheckCircle2 size={18} />}
+            label="Réalisation"
+            value={stats.realisation}
+            tone="green"
+          />
 
-  <MiniStat
-    icon={<XCircle size={18} />}
-    label="Refusées"
-    value={stats.refusees}
-    tone="red"
-  />
-</div>
+          <MiniStat
+            icon={<XCircle size={18} />}
+            label="Refusées"
+            value={stats.refusees}
+            tone="red"
+          />
+        </div>
 
         <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
           <div className="grid gap-3 xl:grid-cols-[1.5fr_0.75fr_0.75fr_0.75fr_auto]">
@@ -281,16 +326,21 @@ export default function DemandesInterventionPage() {
               onValueChange={(value: string) =>
                 setStatutFilter(value as StatutFilter)
               }
-             items={[
-  { label: 'Tous les statuts', value: 'TOUS' },
-  { label: 'En préparation', value: 'EN_PREPARATION' },
-  { label: 'Attente prise en compte', value: 'ATTENTE_PRISE_EN_COMPTE' },
-  { label: 'Attente réalisation', value: 'ATTENTE_REALISATION' },
-  { label: 'Terminé', value: 'TERMINE' },
-  { label: 'Refusé', value: 'REFUSE' },
-  { label: 'Soldé', value: 'SOLDE' },
-  { label: 'Annulé', value: 'ANNULE' },
-]}
+              items={[
+                { label: 'Tous les statuts', value: 'TOUS' },
+                { label: 'En préparation', value: 'EN_PREPARATION' },
+                {
+                  label: 'Attente prise en compte',
+                  value: 'ATTENTE_PRISE_EN_COMPTE',
+                },
+                {
+                  label: 'Attente réalisation',
+                  value: 'ATTENTE_REALISATION',
+                },
+                { label: 'Refusé', value: 'REFUSE' },
+                { label: 'Soldé', value: 'SOLDE' },
+                { label: 'Annulé', value: 'ANNULE' },
+              ]}
             />
 
             <Select
@@ -339,19 +389,22 @@ export default function DemandesInterventionPage() {
           </div>
         )}
 
-       <DemandeInterventionTable
-  demandes={filteredDemandes}
-  total={demandes.length}
-  loading={loading}
-  actionLoadingId={actionLoadingId}
-  onDelete={handleDelete}
-  getDetailHref={(demande) =>
-    `/maintenance/demandes/${demande.idDemande}`
-  }
-  getEditHref={(demande) =>
-    `/maintenance/demandes/${demande.idDemande}/modifier`
-  }
-/>
+        <DemandeInterventionTable
+          demandes={filteredDemandes}
+          total={demandes.length}
+          loading={loading}
+          actionLoadingId={actionLoadingId}
+          onDelete={handleDelete}
+          canDelete={(demande) =>
+            normalizeDemandeStatut(demande.statut) === 'EN_PREPARATION'
+          }
+          getDetailHref={(demande) =>
+            `/maintenance/demandes/${demande.idDemande}`
+          }
+          getEditHref={(demande) =>
+            `/maintenance/demandes/${demande.idDemande}/modifier`
+          }
+        />
       </section>
     </main>
   );
@@ -366,9 +419,9 @@ function MiniStat({
   icon: ReactNode;
   label: string;
   value: number;
-  tone: 'blue' | 'green' | 'red' | 'slate' | 'indigo';
+  tone: MiniStatTone;
 }) {
-  const tones: Record<typeof tone, string> = {
+  const tones: Record<MiniStatTone, string> = {
     blue: 'bg-blue-50 text-blue-700',
     green: 'bg-emerald-50 text-emerald-700',
     red: 'bg-red-50 text-red-700',
@@ -393,4 +446,50 @@ function MiniStat({
       </p>
     </div>
   );
+}
+
+function normalizeDemandeStatut(statut?: string | null) {
+  if (
+    statut === 'TERMINE' ||
+    statut === 'TRAVAUX_ACCEPTES' ||
+    statut === 'TRAVAUX_REFUSES'
+  ) {
+    return 'ATTENTE_REALISATION';
+  }
+
+  return statut || '';
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  const apiError = error as {
+    response?: {
+      data?: {
+        message?: unknown;
+        error?: unknown;
+      };
+    };
+    message?: string;
+  };
+
+  const responseMessage = apiError.response?.data?.message;
+
+  if (Array.isArray(responseMessage)) {
+    return responseMessage.join(', ');
+  }
+
+  if (typeof responseMessage === 'string' && responseMessage.trim()) {
+    return responseMessage;
+  }
+
+  const responseError = apiError.response?.data?.error;
+
+  if (typeof responseError === 'string' && responseError.trim()) {
+    return responseError;
+  }
+
+  if (typeof apiError.message === 'string' && apiError.message.trim()) {
+    return apiError.message;
+  }
+
+  return fallback;
 }

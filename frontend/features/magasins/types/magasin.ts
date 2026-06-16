@@ -1,3 +1,13 @@
+export type EmplacementMagasin = {
+  idEmplacement: number;
+  idMagasin: number;
+  code: string;
+  libelle: string;
+  actif: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type Magasin = {
   idMagasin: number;
   code: string;
@@ -5,6 +15,7 @@ export type Magasin = {
   actif: boolean;
   createdAt?: string;
   updatedAt?: string;
+  emplacements?: EmplacementMagasin[];
 };
 
 export type CreateMagasinDto = {
@@ -14,3 +25,12 @@ export type CreateMagasinDto = {
 };
 
 export type UpdateMagasinDto = Partial<CreateMagasinDto>;
+
+export type CreateEmplacementMagasinDto = {
+  code: string;
+  libelle: string;
+  actif?: boolean;
+};
+
+export type UpdateEmplacementMagasinDto =
+  Partial<CreateEmplacementMagasinDto>;

@@ -2,22 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, RefreshCcw, Warehouse } from 'lucide-react';
 
-import MagasinForm from '@/features/magasins/components/MagasinForm';
+import MagasinDetailCard from '@/features/magasins/components/MagasinDetail';
+import { getMagasinById } from '@/features/magasins/services/magasin.service';
+import type { Magasin } from '@/features/magasins/types/magasin';
 
-import {
-  getMagasinById,
-  updateMagasin,
-} from '@/features/magasins/services/magasin.service';
-
-import type {
-  CreateMagasinDto,
-  Magasin,
-  UpdateMagasinDto,
-} from '@/features/magasins/types/magasin';
-
-export default function ModifierMagasinPage() {
+export default function MagasinDetailPage() {
   const router = useRouter();
   const params = useParams();
 
@@ -29,65 +20,49 @@ export default function ModifierMagasinPage() {
 
   const [magasin, setMagasin] = useState<Magasin | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  const loadData = useCallback(async () => {
-    if (!Number.isFinite(id) || id <= 0) {
-      setError('Identifiant du magasin invalide.');
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError('');
-
-      const data = await getMagasinById(id);
-      setMagasin(data);
-
-      if (data.actif === false) {
-        setError(
-          'Ce magasin est inactif. Vous pouvez le modifier, mais il ne sera pas proposé dans les nouvelles opérations de stock.',
-        );
+  const loadMagasin = useCallback(
+    async (silent = false) => {
+      if (!Number.isFinite(id) || id <= 0) {
+        setError('Identifiant du magasin invalide.');
+        setLoading(false);
+        return;
       }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Erreur lors du chargement du magasin.',
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
+
+      try {
+        if (silent) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
+        setError('');
+
+        const data = await getMagasinById(id);
+        setMagasin(data);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Erreur lors du chargement du magasin.',
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [id],
+  );
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadMagasin();
+  }, [loadMagasin]);
 
-  async function handleSubmit(data: CreateMagasinDto | UpdateMagasinDto) {
+  function handleEdit() {
     if (!magasin) return;
-
-    try {
-      setSubmitting(true);
-      setError('');
-
-      const updated = await updateMagasin(
-        magasin.idMagasin,
-        data as UpdateMagasinDto,
-      );
-
-      router.push(`/magasins/${updated.idMagasin}`);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Erreur lors de la modification du magasin.',
-      );
-    } finally {
-      setSubmitting(false);
-    }
+    router.push(`/magasins/${magasin.idMagasin}/modifier`);
   }
 
   return (
@@ -95,25 +70,27 @@ export default function ModifierMagasinPage() {
       <section className="mx-auto max-w-[1180px] space-y-5">
         <BackButton onClick={() => router.back()} />
 
-        {error && (
-          <div className="rounded-2xl border border-orange-100 bg-orange-50 px-5 py-4 text-sm font-black text-orange-700">
-            {error}
-          </div>
-        )}
-
         {loading ? (
           <LoadingState />
-        ) : !magasin ? (
-          <ErrorState message="Magasin introuvable." onRetry={loadData} />
+        ) : error && !magasin ? (
+          <ErrorState message={error} onRetry={() => loadMagasin()} />
+        ) : magasin ? (
+          <>
+            {error && (
+              <div className="rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-black text-red-700">
+                {error}
+              </div>
+            )}
+
+            <MagasinDetailCard
+              magasin={magasin}
+              refreshing={refreshing}
+              onRefresh={() => loadMagasin(true)}
+              onEdit={handleEdit}
+            />
+          </>
         ) : (
-          <MagasinForm
-            mode="edit"
-            magasin={magasin}
-            loading={loading}
-            submitting={submitting}
-            onSubmit={handleSubmit}
-            onCancel={() => router.back()}
-          />
+          <EmptyState />
         )}
       </section>
     </main>
@@ -141,7 +118,7 @@ function LoadingState() {
       </div>
 
       <p className="mt-4 text-sm font-black text-slate-500">
-        Chargement du formulaire magasin...
+        Chargement de la fiche magasin...
       </p>
     </div>
   );
@@ -176,6 +153,24 @@ function ErrorState({
         <RefreshCcw size={16} />
         Réessayer
       </button>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded-[26px] border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
+      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+        <Warehouse size={24} />
+      </div>
+
+      <h2 className="mt-4 text-lg font-black text-slate-950">
+        Magasin introuvable
+      </h2>
+
+      <p className="mt-2 text-sm font-semibold text-slate-500">
+        Aucun magasin ne correspond à cet identifiant.
+      </p>
     </div>
   );
 }

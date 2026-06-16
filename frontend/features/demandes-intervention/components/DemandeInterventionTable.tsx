@@ -1,17 +1,6 @@
-
-
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import {
-  AlertCircle,
-  CheckCircle2,
-  Clock3,
-  Eye,
-  FileText,
-  Pencil,
-  Trash2,
-  XCircle,
-} from 'lucide-react';
+import { Eye, FileText, Pencil, Trash2 } from 'lucide-react';
 
 import type { DemandeIntervention } from '../types/demande-intervention.types';
 
@@ -20,8 +9,10 @@ type Props = {
   total: number;
   loading?: boolean;
   actionLoadingId?: number | null;
-  
+
   onDelete?: (demande: DemandeIntervention) => void;
+  canDelete?: (demande: DemandeIntervention) => boolean;
+
   getDetailHref?: (demande: DemandeIntervention) => string;
   getEditHref?: (demande: DemandeIntervention) => string;
 };
@@ -32,6 +23,8 @@ export function DemandeInterventionTable({
   loading = false,
   actionLoadingId = null,
   onDelete,
+  canDelete = (demande) =>
+    normalizeDemandeStatut(demande.statut) === 'EN_PREPARATION',
   getDetailHref = (demande) =>
     `/maintenance/demandes/${demande.idDemande}`,
   getEditHref,
@@ -76,6 +69,8 @@ export function DemandeInterventionTable({
               {demandes.map((demande) => {
                 const isActionLoading =
                   actionLoadingId === demande.idDemande;
+
+                const deleteAllowed = Boolean(onDelete) && canDelete(demande);
 
                 return (
                   <tr
@@ -148,11 +143,11 @@ export function DemandeInterventionTable({
                           />
                         )}
 
-                        {onDelete && (
+                        {deleteAllowed && (
                           <button
                             type="button"
                             disabled={isActionLoading}
-                            onClick={() => onDelete(demande)}
+                            onClick={() => onDelete?.(demande)}
                             className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
                             title="Supprimer"
                           >
@@ -173,20 +168,21 @@ export function DemandeInterventionTable({
 }
 
 function StatutBadge({ statut }: { statut?: string | null }) {
-  const label = formatStatut(statut);
+  const currentStatut = normalizeDemandeStatut(statut);
+  const label = formatStatut(currentStatut);
 
- const className =
-  statut === 'EN_PREPARATION'
-    ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
-    : statut === 'ATTENTE_PRISE_EN_COMPTE'
-      ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-100'
-      : statut === 'ATTENTE_REALISATION'
-        ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
-        : statut === 'TERMINE' || statut === 'SOLDE'
-          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
-          : statut === 'REFUSE' || statut === 'ANNULE'
-            ? 'bg-red-50 text-red-700 ring-1 ring-red-100'
-            : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
+  const className =
+    currentStatut === 'EN_PREPARATION'
+      ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
+      : currentStatut === 'ATTENTE_PRISE_EN_COMPTE'
+        ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-100'
+        : currentStatut === 'ATTENTE_REALISATION'
+          ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+          : currentStatut === 'SOLDE'
+            ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
+            : currentStatut === 'REFUSE' || currentStatut === 'ANNULE'
+              ? 'bg-red-50 text-red-700 ring-1 ring-red-100'
+              : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
 
   return (
     <span
@@ -285,6 +281,18 @@ function EmptyState() {
   );
 }
 
+function normalizeDemandeStatut(statut?: string | null) {
+  if (
+    statut === 'TERMINE' ||
+    statut === 'TRAVAUX_ACCEPTES' ||
+    statut === 'TRAVAUX_REFUSES'
+  ) {
+    return 'ATTENTE_REALISATION';
+  }
+
+  return statut || '';
+}
+
 function formatStatut(statut?: string | null) {
   switch (statut) {
     case 'EN_PREPARATION':
@@ -293,8 +301,6 @@ function formatStatut(statut?: string | null) {
       return 'Attente prise en compte';
     case 'ATTENTE_REALISATION':
       return 'Attente réalisation';
-    case 'TERMINE':
-      return 'Terminé';
     case 'REFUSE':
       return 'Refusé';
     case 'SOLDE':
@@ -363,7 +369,7 @@ function formatMateriel(demande: DemandeIntervention) {
   if (code) return code;
   if (libelle) return libelle;
 
-  return `Matériel #${demande.idMateriel}`;
+  return demande.idMateriel ? `Matériel #${demande.idMateriel}` : '—';
 }
 
 function getDemandeCodeLabel(code?: string | null, idDemande?: number) {

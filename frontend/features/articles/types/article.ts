@@ -27,6 +27,31 @@ export type Magasin = {
   libelle: string;
   actif: boolean;
 };
+export type ArticleMaterielSerialise = {
+  idMateriel: number;
+  code: string;
+  libelle?: string | null;
+  numeroSerie?: string | null;
+  idMagasin?: number | null;
+  idEmplacement?: number | null;
+  magasinCode?: string | null;
+  magasinLibelle?: string | null;
+  emplacementCode?: string | null;
+  emplacementLibelle?: string | null;
+  etat?: string | null;
+  positionActuelle?: string | null;
+  actif?: boolean | null;
+};
+export type ArticleStock = {
+  idStock: number;
+  idArticle: number;
+  idMagasin: number;
+  quantitePhysique: string | number;
+  quantiteReservee: string | number;
+  quantiteDisponible: string | number;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 export type ModeleEquipement = {
   idModele: number;
@@ -103,7 +128,8 @@ export type Article = {
   modeleEquipement?: ModeleEquipement | null;
 
   consommations?: unknown[];
-  stocks?: unknown[];
+  stocks?: ArticleStock[];
+materiels?: ArticleMaterielSerialise[];
 };
 
 export type CreateArticleDto = {

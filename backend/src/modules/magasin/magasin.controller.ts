@@ -11,10 +11,16 @@ import {
 import { MagasinService } from './magasin.service';
 import { CreateMagasinDto } from './dto/create-magasin.dto';
 import { UpdateMagasinDto } from './dto/update-magasin.dto';
+import { CreateEmplacementMagasinDto } from './dto/create-emplacement-magasin.dto';
+import { UpdateEmplacementMagasinDto } from './dto/update-emplacement-magasin.dto';
 
 @Controller('magasins')
 export class MagasinController {
   constructor(private readonly magasinService: MagasinService) {}
+
+  /* =========================
+     MAGASINS
+  ========================= */
 
   @Post()
   create(@Body() dto: CreateMagasinDto) {
@@ -24,6 +30,23 @@ export class MagasinController {
   @Get()
   findAll() {
     return this.magasinService.findAll();
+  }
+
+  /*
+    Important :
+    cette route doit être AVANT @Get(':id')
+  */
+  @Get(':id/emplacements')
+  findEmplacementsByMagasin(@Param('id', ParseIntPipe) id: number) {
+    return this.magasinService.findEmplacementsByMagasin(id);
+  }
+
+  @Post(':id/emplacements')
+  createEmplacement(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateEmplacementMagasinDto,
+  ) {
+    return this.magasinService.createEmplacement(id, dto);
   }
 
   @Get(':id')
@@ -42,5 +65,24 @@ export class MagasinController {
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.magasinService.remove(id);
+  }
+
+  /* =========================
+     EMPLACEMENTS MAGASIN
+  ========================= */
+
+  @Patch('emplacements/:idEmplacement')
+  updateEmplacement(
+    @Param('idEmplacement', ParseIntPipe) idEmplacement: number,
+    @Body() dto: UpdateEmplacementMagasinDto,
+  ) {
+    return this.magasinService.updateEmplacement(idEmplacement, dto);
+  }
+
+  @Delete('emplacements/:idEmplacement')
+  removeEmplacement(
+    @Param('idEmplacement', ParseIntPipe) idEmplacement: number,
+  ) {
+    return this.magasinService.removeEmplacement(idEmplacement);
   }
 }

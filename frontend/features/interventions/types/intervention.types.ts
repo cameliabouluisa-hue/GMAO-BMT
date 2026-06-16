@@ -20,6 +20,13 @@ export type InterventionTypeMaintenance =
   | 'CONDITIONNEL'
   | string;
 
+  export type CreateOperationInterventionDto = {
+  ordre?: number;
+  libelle: string;
+  description?: string;
+  tempsPasse?: number;
+  obligatoire?: boolean;
+};
 export type LiteEntity = {
   code?: string | null;
   libelle?: string | null;

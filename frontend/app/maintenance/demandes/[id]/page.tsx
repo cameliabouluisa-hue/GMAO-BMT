@@ -9,10 +9,8 @@ import { DemandeInterventionDetail } from '@/features/demandes-intervention/comp
 
 import {
   accepterDemandeIntervention,
-  accepterTravauxDemandeIntervention,
   getDemandeIntervention,
   refuserDemandeIntervention,
-  refuserTravauxDemandeIntervention,
   soumettreDemandeIntervention,
 } from '@/features/demandes-intervention/services/demande-intervention.service';
 
@@ -60,8 +58,15 @@ export default function DemandeInterventionDetailPage() {
       setActionLoading(true);
       setError('');
 
-      const updated = await action();
-      setDemande(updated);
+      await action();
+
+      /**
+       * On recharge après l’action pour récupérer :
+       * - le nouveau statut de la DI
+       * - l’OT créé automatiquement après acceptation
+       * - les relations mises à jour côté backend
+       */
+      await loadDemande();
     } catch (err) {
       setError(
         err instanceof Error
@@ -72,50 +77,33 @@ export default function DemandeInterventionDetailPage() {
       setActionLoading(false);
     }
   }
-function handleSoumettre() {
-  runAction(() =>
-    soumettreDemandeIntervention(idDemande, {
-      utilisateur: 'Admin',
-      commentaire: 'Demande soumise',
-    }),
-  );
-}
 
-function handleAccepter() {
-  runAction(() =>
-    accepterDemandeIntervention(idDemande, {
-      utilisateur: 'Admin',
-      commentaire: 'Demande acceptée',
-    }),
-  );
-}
+  function handleSoumettre() {
+    runAction(() =>
+      soumettreDemandeIntervention(idDemande, {
+        utilisateur: 'Admin',
+        commentaire: 'Demande soumise',
+      }),
+    );
+  }
 
-function handleRefuser() {
-  runAction(() =>
-    refuserDemandeIntervention(idDemande, {
-      utilisateur: 'Admin',
-      motifRefus: 'Demande refusée',
-    }),
-  );
-}
+  function handleAccepter() {
+    runAction(() =>
+      accepterDemandeIntervention(idDemande, {
+        utilisateur: 'Admin',
+        commentaire: 'Demande acceptée',
+      }),
+    );
+  }
 
-function handleAccepterTravaux() {
-  runAction(() =>
-    accepterTravauxDemandeIntervention(idDemande, {
-      utilisateur: 'Admin',
-      commentaire: 'Travaux acceptés',
-    }),
-  );
-}
-
-function handleRefuserTravaux() {
-  runAction(() =>
-    refuserTravauxDemandeIntervention(idDemande, {
-      utilisateur: 'Admin',
-      motifRefusTravaux: 'Travaux refusés',
-    }),
-  );
-}
+  function handleRefuser() {
+    runAction(() =>
+      refuserDemandeIntervention(idDemande, {
+        utilisateur: 'Admin',
+        motifRefus: 'Demande refusée',
+      }),
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#f5f7fb] px-6 py-6">
@@ -162,8 +150,6 @@ function handleRefuserTravaux() {
               onSoumettre={handleSoumettre}
               onAccepter={handleAccepter}
               onRefuser={handleRefuser}
-              onAccepterTravaux={handleAccepterTravaux}
-              onRefuserTravaux={handleRefuserTravaux}
             />
           </>
         ) : null}

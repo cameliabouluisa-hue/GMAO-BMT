@@ -989,23 +989,27 @@ export class MaterielService {
     return etat.code;
   }
 
-  private verifierTransitionEtat(
-    ancienCodeEtat: string | null,
-    nouveauCodeEtat: string,
-  ) {
-    if (!ancienCodeEtat) return;
+ private verifierTransitionEtat(
+  ancienCodeEtat: string | null,
+  nouveauCodeEtat: string,
+) {
+  if (!ancienCodeEtat) return;
 
-    if (ancienCodeEtat === nouveauCodeEtat) return;
+  if (ancienCodeEtat === nouveauCodeEtat) return;
 
-    const transitionsPossibles =
-      TRANSITIONS_MATERIEL_AUTORISEES[ancienCodeEtat] ?? [];
-
-    if (!transitionsPossibles.includes(nouveauCodeEtat)) {
-      throw new BadRequestException(
-        `Transition non autorisée : ${ancienCodeEtat} → ${nouveauCodeEtat}.`,
-      );
-    }
+  /*
+   * Version simple :
+   * On autorise tous les changements d'état,
+   * sauf si le matériel est déjà au rebut.
+   */
+  if (ancienCodeEtat === 'AU_REBUT' && nouveauCodeEtat !== 'AU_REBUT') {
+    throw new BadRequestException(
+      'Un matériel au rebut ne peut pas changer d’état.',
+    );
   }
+
+  return;
+}
 
   private appliquerEffetsEtat(
     data: any,

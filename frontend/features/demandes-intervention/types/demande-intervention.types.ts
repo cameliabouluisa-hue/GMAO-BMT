@@ -14,10 +14,8 @@ export type StatutDemandeIntervention =
   | 'EN_PREPARATION'
   | 'ATTENTE_PRISE_EN_COMPTE'
   | 'ATTENTE_REALISATION'
-  | 'TERMINE'
   | 'REFUSE'
   | 'SOLDE'
-  | 'ANNULE'
   | string;
 
 export type MaterielLite = {

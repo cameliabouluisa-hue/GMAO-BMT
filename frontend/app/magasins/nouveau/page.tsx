@@ -1,51 +1,72 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, RefreshCcw } from 'lucide-react';
 
-import { MagasinForm } from '@/features/magasins/components/MagasinForm';
+import MagasinForm from '@/features/magasins/components/MagasinForm';
 import { createMagasin } from '@/features/magasins/services/magasin.service';
-import { CreateMagasinDto } from '@/features/magasins/types/magasin';
+import type {
+  CreateMagasinDto,
+  UpdateMagasinDto,
+} from '@/features/magasins/types/magasin';
 
 export default function NouveauMagasinPage() {
   const router = useRouter();
 
-  async function handleSubmit(data: CreateMagasinDto) {
-    await createMagasin(data);
-    router.push('/magasins');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(data: CreateMagasinDto | UpdateMagasinDto) {
+    try {
+      setSubmitting(true);
+      setError('');
+
+      const created = await createMagasin(data as CreateMagasinDto);
+
+      router.push(`/magasins/${created.idMagasin}`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Erreur lors de la création du magasin.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-8 py-8">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-8 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.35em] text-slate-400">
-              BMT · Module stock
-            </p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight text-[#0f3d56]">
-              Nouveau magasin
-            </h1>
-            <p className="mt-2 text-slate-500">
-              Créez un magasin utilisé dans les opérations de stock.
-            </p>
-          </div>
+    <main className="min-h-[calc(100vh-96px)] bg-[#f5f7fb] px-5 py-6">
+      <section className="mx-auto max-w-[1180px] space-y-5">
+        <BackButton onClick={() => router.back()} />
 
-          <button
-            onClick={() => router.back()}
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            <ArrowLeft size={18} />
-            Retour
-          </button>
-        </div>
+        {error && (
+          <div className="rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-black text-red-700">
+            {error}
+          </div>
+        )}
 
         <MagasinForm
+          mode="create"
+          submitting={submitting}
           onSubmit={handleSubmit}
-          onCancel={() => router.push('/magasins')}
-          submitLabel="Créer le magasin"
+          onCancel={() => router.back()}
         />
-      </div>
+      </section>
     </main>
+  );
+}
+
+function BackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-2 text-sm font-black text-slate-500 transition hover:text-[#06475a]"
+    >
+      <ArrowLeft size={18} />
+      Retour
+    </button>
   );
 }

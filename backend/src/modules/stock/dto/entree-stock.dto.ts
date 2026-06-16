@@ -144,4 +144,9 @@ export class UpdateLigneEntreeStockDto {
   @IsOptional()
   @IsString()
   commentaire?: string;
+    @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MaterielEntreeStockDto)
+  materiels?: MaterielEntreeStockDto[];
 }

@@ -24,6 +24,8 @@ type FindAllDemandeFilters = {
   priorite?: string;
 };
 
+type EtatMaterielCible = 'EN_SERVICE' | 'EN_PANNE' | 'INDISPONIBLE';
+
 const demandeInclude = {
   materiel: true,
   intervention: {
@@ -97,7 +99,11 @@ export class DemandeInterventionService {
           materielIndisponible: dto.materielIndisponible ?? false,
 
           materiel: dto.idMateriel
-            ? { connect: { idMateriel: dto.idMateriel } }
+            ? {
+                connect: {
+                  idMateriel: dto.idMateriel,
+                },
+              }
             : undefined,
         },
       });
@@ -110,6 +116,13 @@ export class DemandeInterventionService {
         commentaire: 'Création de la demande d’intervention',
         changedBy: dto.createdBy,
       });
+
+      if (demande.idMateriel) {
+        await this.recalculerEtatMaterielDepuisDemandesTx(
+          tx,
+          demande.idMateriel,
+        );
+      }
 
       return tx.demande_intervention.findUnique({
         where: { idDemande: demande.idDemande },
@@ -127,21 +140,41 @@ export class DemandeInterventionService {
       await this.ensureMaterielExists(dto.idMateriel);
     }
 
-    return this.prisma.demande_intervention.update({
-      where: { idDemande },
-      data: {
-        code: dto.code,
-        dateDemande: this.parseDate(dto.dateDemande),
-        description: dto.description,
-        idMateriel: dto.idMateriel,
-        priorite: dto.priorite,
-        criticite: dto.criticite,
-        demandeur: dto.demandeur,
-        receptionTravaux: dto.receptionTravaux,
-        materielEnPanne: dto.materielEnPanne,
-        materielIndisponible: dto.materielIndisponible,
-      },
-      include: demandeInclude,
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.demande_intervention.update({
+        where: { idDemande },
+        data: {
+          code: dto.code,
+          dateDemande: this.parseDate(dto.dateDemande),
+          description: dto.description,
+          idMateriel: dto.idMateriel,
+          priorite: dto.priorite,
+          criticite: dto.criticite,
+          demandeur: dto.demandeur,
+          receptionTravaux: dto.receptionTravaux,
+          materielEnPanne: dto.materielEnPanne,
+          materielIndisponible: dto.materielIndisponible,
+        },
+      });
+
+      const materielsARecalculer = new Set<number>();
+
+      if (demande.idMateriel) {
+        materielsARecalculer.add(demande.idMateriel);
+      }
+
+      if (updated.idMateriel) {
+        materielsARecalculer.add(updated.idMateriel);
+      }
+
+      for (const idMateriel of materielsARecalculer) {
+        await this.recalculerEtatMaterielDepuisDemandesTx(tx, idMateriel);
+      }
+
+      return tx.demande_intervention.findUnique({
+        where: { idDemande: updated.idDemande },
+        include: demandeInclude,
+      });
     });
   }
 
@@ -154,8 +187,23 @@ export class DemandeInterventionService {
       );
     }
 
-    return this.prisma.demande_intervention.delete({
-      where: { idDemande },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.historique_etat_demande_intervention.deleteMany({
+        where: { idDemande },
+      });
+
+      const deleted = await tx.demande_intervention.delete({
+        where: { idDemande },
+      });
+
+      if (demande.idMateriel) {
+        await this.recalculerEtatMaterielDepuisDemandesTx(
+          tx,
+          demande.idMateriel,
+        );
+      }
+
+      return deleted;
     });
   }
 
@@ -208,7 +256,9 @@ export class DemandeInterventionService {
 
           libelle: demande.description
             ? demande.description.slice(0, 150)
-            : `OT correctif lié à ${demande.code ?? `DI-${demande.idDemande}`}`,
+            : `OT correctif lié à ${
+                demande.code ?? `DI-${demande.idDemande}`
+              }`,
 
           description: demande.description,
 
@@ -279,6 +329,13 @@ export class DemandeInterventionService {
         changedBy: dto.utilisateur,
       });
 
+      if (demande.idMateriel) {
+        await this.recalculerEtatMaterielDepuisDemandesTx(
+          tx,
+          demande.idMateriel,
+        );
+      }
+
       const demandeUpdated = await tx.demande_intervention.findUnique({
         where: { idDemande },
         include: demandeInclude,
@@ -291,31 +348,28 @@ export class DemandeInterventionService {
     });
   }
 
-  async accepterTravaux(idDemande: number, dto: ActionDemandeInterventionDto) {
-    return this.changeStatut(idDemande, {
-      nouveauStatut: DEMANDE_INTERVENTION_STATUTS.SOLDE,
-      action: 'ACCEPTER_TRAVAUX',
-      changedBy: dto.utilisateur,
-      commentaire: dto.commentaire,
-      allowedFrom: [DEMANDE_INTERVENTION_STATUTS.TERMINE],
-      data: {
-        receptionBy: dto.utilisateur,
-        dateReceptionTravaux: new Date(),
-      },
-    });
+  async accepterTravaux(
+    idDemande: number,
+    dto: ActionDemandeInterventionDto,
+  ) {
+    void idDemande;
+    void dto;
+
+    throw new BadRequestException(
+      'La réception des travaux ne se fait plus côté DI. Elle est gérée par le workflow de l’OT.',
+    );
   }
 
-  async refuserTravaux(idDemande: number, dto: RefuserTravauxDemandeDto) {
-    return this.changeStatut(idDemande, {
-      nouveauStatut: DEMANDE_INTERVENTION_STATUTS.ATTENTE_REALISATION,
-      action: 'REFUSER_TRAVAUX',
-      changedBy: dto.utilisateur,
-      commentaire: dto.motifRefusTravaux,
-      allowedFrom: [DEMANDE_INTERVENTION_STATUTS.TERMINE],
-      data: {
-        motifRefusTravaux: dto.motifRefusTravaux,
-      },
-    });
+  async refuserTravaux(
+    idDemande: number,
+    dto: RefuserTravauxDemandeDto,
+  ) {
+    void idDemande;
+    void dto;
+
+    throw new BadRequestException(
+      'Le refus des travaux ne se fait plus côté DI. Il est géré par le workflow de l’OT.',
+    );
   }
 
   private async changeStatut(
@@ -365,6 +419,13 @@ export class DemandeInterventionService {
         commentaire: params.commentaire,
         changedBy: params.changedBy,
       });
+
+      if (updated.idMateriel) {
+        await this.recalculerEtatMaterielDepuisDemandesTx(
+          tx,
+          updated.idMateriel,
+        );
+      }
 
       return tx.demande_intervention.findUnique({
         where: { idDemande: updated.idDemande },
@@ -446,6 +507,118 @@ export class DemandeInterventionService {
 
       index++;
     }
+  }
+
+  private async getEtatMaterielIdTx(
+    tx: Prisma.TransactionClient,
+    cible: EtatMaterielCible,
+  ): Promise<number> {
+    const candidats: Record<EtatMaterielCible, string[]> = {
+      EN_SERVICE: [
+        'EN_SERVICE',
+        'SERVICE',
+        'EN SERVICE',
+        'En service',
+        'Service',
+      ],
+      EN_PANNE: [
+        'EN_PANNE',
+        'PANNE',
+        'EN PANNE',
+        'En panne',
+        'Panne',
+      ],
+      INDISPONIBLE: [
+        'INDISPONIBLE',
+        'HORS_SERVICE',
+        'HORS SERVICE',
+        'Hors service',
+        'ARRET',
+        'ARRÊT',
+        'EN_ARRET',
+        'EN ARRÊT',
+        'Indisponible',
+      ],
+    };
+
+    const valeurs = candidats[cible];
+
+    const etat = await tx.etat_materiel.findFirst({
+      where: {
+        OR: [
+          {
+            code: {
+              in: valeurs,
+            },
+          },
+          {
+            libelle: {
+              in: valeurs,
+            },
+          },
+        ],
+      },
+      select: {
+        idEtat: true,
+      },
+    });
+
+    if (!etat) {
+      throw new BadRequestException(
+        `État matériel introuvable pour ${cible}. Vérifie la table etat_materiel.`,
+      );
+    }
+
+    return etat.idEtat;
+  }
+
+  private async recalculerEtatMaterielDepuisDemandesTx(
+    tx: Prisma.TransactionClient,
+    idMateriel: number,
+  ) {
+    const demandesActives = await tx.demande_intervention.findMany({
+      where: {
+        idMateriel,
+        statut: {
+          notIn: [
+            DEMANDE_INTERVENTION_STATUTS.SOLDE,
+            DEMANDE_INTERVENTION_STATUTS.REFUSE,
+            DEMANDE_INTERVENTION_STATUTS.ANNULE,
+          ],
+        },
+      },
+      select: {
+        materielEnPanne: true,
+        materielIndisponible: true,
+      },
+    });
+
+    let cible: EtatMaterielCible = 'EN_SERVICE';
+
+    const existeIndisponible = demandesActives.some(
+      (demande) => demande.materielIndisponible,
+    );
+
+    const existeEnPanne = demandesActives.some(
+      (demande) => demande.materielEnPanne,
+    );
+
+    if (existeIndisponible) {
+      cible = 'INDISPONIBLE';
+    } else if (existeEnPanne) {
+      cible = 'EN_PANNE';
+    }
+
+    const idEtat = await this.getEtatMaterielIdTx(tx, cible);
+
+    await tx.materiel.update({
+      where: {
+        idMateriel,
+      },
+      data: {
+        idEtat,
+      },
+    });
   }
 
   private async generateInterventionCodeTx(tx: Prisma.TransactionClient) {

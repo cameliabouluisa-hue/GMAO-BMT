@@ -33,6 +33,8 @@ import type {
   TerminerInterventionDto,
   UpdateInterventionDto,
   UpsertCompteRenduInterventionDto,
+  CreateOperationInterventionDto,
+OperationIntervention,
 } from '../types/intervention.types';
 
 const BASE_URL = '/interventions';
@@ -56,7 +58,28 @@ export async function getInterventions(
 
   return res.data;
 }
+export async function createOperationIntervention(
+  idIntervention: number,
+  data: CreateOperationInterventionDto,
+): Promise<OperationIntervention> {
+  const res = await axios.post<OperationIntervention>(
+    `${BASE_URL}/${idIntervention}/operations`,
+    data,
+  );
 
+  return res.data;
+}
+
+export async function deleteOperationIntervention(
+  idIntervention: number,
+  idOperation: number,
+): Promise<Intervention> {
+  const res = await axios.delete<Intervention>(
+    `${BASE_URL}/${idIntervention}/operations/${idOperation}`,
+  );
+
+  return res.data;
+}
 export async function getIntervention(
   idIntervention: number,
 ): Promise<Intervention> {
@@ -242,7 +265,30 @@ export async function affecterTechnicienIntervention(
   );
   return res.data;
 }
+export async function deleteAffectationTechnicien(
+  idIntervention: number,
+  idAffectation: number,
+): Promise<Intervention> {
+  const res = await axios.delete<Intervention>(
+    `${BASE_URL}/${idIntervention}/affectations/${idAffectation}`,
+  );
 
+  return res.data;
+}
+export async function fournituresDisponiblesIntervention(
+  idIntervention: number,
+): Promise<Intervention> {
+  const res = await axios.post<Intervention>(
+    `${BASE_URL}/${idIntervention}/fournitures-disponibles`,
+    {
+      changedBy: 'Admin',
+      commentaire:
+        "Les fournitures sont disponibles, l'OT est prêt à être réalisé.",
+    },
+  );
+
+  return res.data;
+}
 export async function retirerAffectationIntervention(
   idAffectation: number,
 ): Promise<unknown> {

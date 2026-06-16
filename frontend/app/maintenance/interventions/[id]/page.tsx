@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft } from 'lucide-react';
 
+
+
 import { InterventionDetail } from '@/features/interventions/components/InterventionDetail';
 import {
   accepterTravauxIntervention,
@@ -28,6 +30,10 @@ import {
   terminerIntervention,
   upsertCompteRenduIntervention,
   validerIntervention,
+  createOperationIntervention,
+  deleteOperationIntervention,
+  deleteAffectationTechnicien ,
+  fournituresDisponiblesIntervention,
 } from '@/features/interventions/services/intervention.service';
 import type {
   AffecterEquipeDto,
@@ -37,6 +43,7 @@ import type {
   Intervention,
   RefuserTravauxDto,
   UpsertCompteRenduInterventionDto,
+  CreateOperationInterventionDto,
 } from '@/features/interventions/types/intervention.types';
 
 export default function InterventionDetailPage() {
@@ -90,7 +97,82 @@ export default function InterventionDetailPage() {
       setActionLoading(false);
     }
   }
+  async function handleCreateOperation(data: CreateOperationInterventionDto) {
+  if (!intervention) return;
 
+  setActionLoading(true);
+
+  try {
+    await createOperationIntervention(intervention.idIntervention, data);
+    await loadIntervention();
+  } catch (error) {
+    setError(getApiErrorMessage(error, "Impossible d'ajouter l'opération."));
+  } finally {
+    setActionLoading(false);
+  }
+}
+
+async function handleDeleteOperation(idOperation: number) {
+  if (!intervention) return;
+
+  setActionLoading(true);
+
+  try {
+    await deleteOperationIntervention(
+      intervention.idIntervention,
+      idOperation,
+    );
+    await loadIntervention();
+  } catch (error) {
+    setError(getApiErrorMessage(error, "Impossible de supprimer l'opération."));
+  } finally {
+    setActionLoading(false);
+  }
+}
+async function handleFournituresDisponibles() {
+  if (!intervention) return;
+
+  setActionLoading(true);
+
+  try {
+    await fournituresDisponiblesIntervention(intervention.idIntervention);
+    await loadIntervention();
+  } catch (error) {
+    setError(
+      getApiErrorMessage(
+        error,
+        "Impossible de passer l'OT en attente réalisation.",
+      ),
+    );
+  } finally {
+    setActionLoading(false);
+  }
+}
+async function handleDeleteAffectationTechnicien(idAffectation: number) {
+  if (!intervention) return;
+
+  setActionLoading(true);
+
+  try {
+    await deleteAffectationTechnicien(
+      intervention.idIntervention,
+      idAffectation,
+    );
+
+    await loadIntervention();
+  } catch (error) {
+    setError(
+      getApiErrorMessage(
+        error,
+        "Impossible de supprimer l'affectation technicien.",
+      ),
+    );
+
+    throw error;
+  } finally {
+    setActionLoading(false);
+  }
+}
   return (
     <main className="min-h-screen bg-[#f5f7fb] px-6 py-6">
       <section className="mx-auto max-w-[1350px] space-y-5">
@@ -130,6 +212,11 @@ export default function InterventionDetailPage() {
               intervention={intervention}
               actionLoading={actionLoading}
               onRefresh={loadIntervention}
+              
+              onCreateOperation={handleCreateOperation}
+onDeleteOperation={handleDeleteOperation}
+onDeleteAffectationTechnicien={handleDeleteAffectationTechnicien}
+onFournituresDisponibles={handleFournituresDisponibles}
               onDemanderValidation={() =>
                 runAction(() =>
                   demanderValidationIntervention(idIntervention, {

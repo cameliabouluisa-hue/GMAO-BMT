@@ -155,13 +155,7 @@ export default function ArticlesPage() {
   async function handleDisableOrRestore(article: Article) {
     const isActive = Boolean(article.actif);
 
-    const message = isActive
-      ? `Voulez-vous désactiver l’article "${article.designation}" ?`
-      : `Voulez-vous restaurer l’article "${article.designation}" ?`;
-
-    const ok = window.confirm(message);
-    if (!ok) return;
-
+    
     try {
       setActionLoading(true);
       setError('');

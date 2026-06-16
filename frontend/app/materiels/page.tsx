@@ -106,8 +106,8 @@ export default function MaterielsPage() {
 
       const matchesStock =
         stockFilter === 'TOUS' ||
-        (stockFilter === 'GERE_STOCK' && materiel.gereEnStock) ||
-        (stockFilter === 'NON_GERE_STOCK' && !materiel.gereEnStock);
+        (stockFilter === 'GERE_STOCK' && materiel.gereEnStock === true) ||
+        (stockFilter === 'NON_GERE_STOCK' && materiel.gereEnStock !== true);
 
       const matchesPosition =
         positionFilter === 'TOUTES' ||
@@ -128,12 +128,13 @@ export default function MaterielsPage() {
     return {
       total: materiels.length,
       actifs: materiels.filter(isMaterielActif).length,
-      stock: materiels.filter((materiel) => materiel.gereEnStock).length,
+      stock: materiels.filter((materiel) => materiel.gereEnStock === true)
+        .length,
       terrain: materiels.filter(
         (materiel) => materiel.positionActuelle === 'SUR_TERRAIN',
       ).length,
       panne: materiels.filter(
-        (materiel) => materiel.etat_materiel?.code === 'EN_PANNE',
+        (materiel) => getEtatMaterielInfo(materiel).code === 'EN_PANNE',
       ).length,
     };
   }, [materiels]);
@@ -146,19 +147,25 @@ export default function MaterielsPage() {
   }
 
   async function handleDeactivate(materiel: Materiel) {
-    const confirmed = window.confirm(
-      `Voulez-vous vraiment désactiver le matériel ${
-        materiel.code || materiel.idMateriel
-      } ?`,
-    );
-
-    if (!confirmed) return;
+    if (actionLoadingId !== null) return;
 
     try {
       setActionLoadingId(materiel.idMateriel);
       setError('');
 
       await deleteMateriel(materiel.idMateriel);
+
+      setMateriels((prev) =>
+        prev.map((item) =>
+          item.idMateriel === materiel.idMateriel
+            ? {
+                ...item,
+                actif: false,
+              }
+            : item,
+        ),
+      );
+
       await loadMateriels();
     } catch (err) {
       setError(
@@ -172,19 +179,25 @@ export default function MaterielsPage() {
   }
 
   async function handleRestore(materiel: Materiel) {
-    const confirmed = window.confirm(
-      `Voulez-vous vraiment réactiver le matériel ${
-        materiel.code || materiel.idMateriel
-      } ?`,
-    );
-
-    if (!confirmed) return;
+    if (actionLoadingId !== null) return;
 
     try {
       setActionLoadingId(materiel.idMateriel);
       setError('');
 
       await restoreMateriel(materiel.idMateriel);
+
+      setMateriels((prev) =>
+        prev.map((item) =>
+          item.idMateriel === materiel.idMateriel
+            ? {
+                ...item,
+                actif: true,
+              }
+            : item,
+        ),
+      );
+
       await loadMateriels();
     } catch (err) {
       setError(
@@ -382,6 +395,7 @@ export default function MaterielsPage() {
                     const materielActif = isMaterielActif(materiel);
                     const isActionLoading =
                       actionLoadingId === materiel.idMateriel;
+                    const etatInfo = getEtatMaterielInfo(materiel);
 
                     return (
                       <tr
@@ -421,12 +435,8 @@ export default function MaterielsPage() {
 
                         <td className="px-5 py-4 align-middle">
                           <EtatBadge
-                            code={materiel.etat_materiel?.code}
-                            label={
-                              materiel.etat_materiel?.libelle ||
-                              materiel.etat_materiel?.code ||
-                              'Sans état'
-                            }
+                            code={etatInfo.code}
+                            label={etatInfo.label}
                           />
                         </td>
 
@@ -457,7 +467,14 @@ export default function MaterielsPage() {
                                   className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
                                   title="Désactiver"
                                 >
-                                  <Trash2 size={16} />
+                                  {isActionLoading ? (
+                                    <RefreshCcw
+                                      size={16}
+                                      className="animate-spin"
+                                    />
+                                  ) : (
+                                    <Trash2 size={16} />
+                                  )}
                                 </button>
                               </>
                             )}
@@ -470,7 +487,14 @@ export default function MaterielsPage() {
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                                 title="Réactiver"
                               >
-                                <RotateCcw size={16} />
+                                {isActionLoading ? (
+                                  <RefreshCcw
+                                    size={16}
+                                    className="animate-spin"
+                                  />
+                                ) : (
+                                  <RotateCcw size={16} />
+                                )}
                               </button>
                             )}
                           </div>
@@ -533,22 +557,30 @@ function EtatBadge({
   code?: string | null;
   label: string;
 }) {
+  const normalized = (code || '').toUpperCase();
+
   const className =
-    code === 'EN_SERVICE' || code === 'VALIDE'
+    normalized === 'EN_SERVICE' || normalized === 'VALIDE'
       ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
-      : code === 'EN_PANNE'
+      : normalized === 'EN_PANNE'
         ? 'bg-red-50 text-red-700 ring-1 ring-red-100'
-        : code === 'EN_REVISION' || code === 'EN_MAINTENANCE'
+        : normalized === 'INDISPONIBLE'
           ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-100'
-          : code === 'AU_REBUT' || code === 'ANNULE'
-            ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
-            : 'bg-blue-50 text-blue-700 ring-1 ring-blue-100';
+          : normalized === 'EN_REVISION' || normalized === 'EN_MAINTENANCE'
+            ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+            : normalized === 'AU_REBUT' || normalized === 'ANNULE'
+              ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
+              : normalized === 'ATTENTE_VALIDATION'
+                ? 'bg-violet-50 text-violet-700 ring-1 ring-violet-100'
+                : normalized === 'EN_PREPARATION'
+                  ? 'bg-sky-50 text-sky-700 ring-1 ring-sky-100'
+                  : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
 
   return (
     <span
       className={`inline-flex rounded-xl px-3 py-1.5 text-xs font-black ${className}`}
     >
-      {label}
+      {label || formatEtatMateriel(normalized)}
     </span>
   );
 }
@@ -585,6 +617,81 @@ function ActionButton({
       {icon}
     </Link>
   );
+}
+
+function getEtatMaterielInfo(materiel: Materiel) {
+  const record = materiel as unknown as Record<string, unknown>;
+
+  const etatRelation =
+    toRecord(record.etat_materiel) ||
+    toRecord(record.etatMateriel) ||
+    toRecord(record.etat);
+
+  const code =
+    getText(etatRelation?.code) ||
+    getText(record.codeEtat) ||
+    getText(record.etatCode) ||
+    getText(record.etat);
+
+  const normalizedCode = code ? code.toUpperCase() : null;
+
+  const label =
+    getText(etatRelation?.libelle) ||
+    getText(record.libelleEtat) ||
+    getText(record.etatLibelle) ||
+    formatEtatMateriel(normalizedCode);
+
+  return {
+    code: normalizedCode,
+    label: label || 'Sans état',
+  };
+}
+
+function formatEtatMateriel(code?: string | null) {
+  switch ((code || '').toUpperCase()) {
+    case 'EN_SERVICE':
+      return 'En service';
+    case 'EN_PANNE':
+      return 'En panne';
+    case 'INDISPONIBLE':
+      return 'Indisponible';
+    case 'EN_REVISION':
+      return 'En révision';
+    case 'EN_MAINTENANCE':
+      return 'En maintenance';
+    case 'AU_REBUT':
+      return 'Au rebut';
+    case 'ANNULE':
+      return 'Annulé';
+    case 'EN_PREPARATION':
+      return 'En préparation';
+    case 'ATTENTE_VALIDATION':
+      return 'En attente validation';
+    case 'VALIDE':
+      return 'Validé';
+    default:
+      return code || 'Sans état';
+  }
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  return null;
+}
+
+function getText(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+
+  if (typeof value === 'number') {
+    return String(value);
+  }
+
+  return null;
 }
 
 function EmptyState() {

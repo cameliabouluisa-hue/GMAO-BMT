@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, RefreshCcw, UserPlus, Users } from 'lucide-react';
+import { ArrowLeft, RefreshCcw, UserPlus, Users ,Trash2} from 'lucide-react';
 
 import {
   AppFieldGrid,
@@ -25,6 +25,7 @@ import type {
   InterventionReferenceData,
   RefuserTravauxDto,
   UpsertCompteRenduInterventionDto,
+  CreateOperationInterventionDto,
 } from '../types/intervention.types';
 import {
   Badge,
@@ -33,6 +34,7 @@ import {
   formatEtat,
   formatNumber,
   formatType,
+  
 } from './InterventionTable';
 import { InterventionWorkflowActions } from './InterventionWorkflowActions';
 import { OperationsSection } from './OperationsSection';
@@ -63,6 +65,12 @@ type Props = {
   onSaveCompteRendu: (data: UpsertCompteRenduInterventionDto) => void;
   onCreateConsommation: (data: CreateConsommationInterventionDto) => void;
   onCancelConsommation: (idConsommation: number) => void;
+  onCreateOperation: (data: CreateOperationInterventionDto) => void | Promise<void>;
+onDeleteOperation: (idOperation: number) => void | Promise<void>;
+onFournituresDisponibles: () => void;
+onDeleteAffectationTechnicien: (
+  idAffectation: number,
+) => void | Promise<void>;
 };
 
 export function InterventionDetail({
@@ -88,6 +96,10 @@ export function InterventionDetail({
   onSaveCompteRendu,
   onCreateConsommation,
   onCancelConsommation,
+  onCreateOperation,
+onDeleteOperation,
+onDeleteAffectationTechnicien,
+onFournituresDisponibles,
 }: Props) {
   const canModify = intervention.etat === 'EN_PREPARATION';
 
@@ -171,27 +183,36 @@ export function InterventionDetail({
           onSolder={onSolder}
           onAnnuler={onAnnuler}
           onArchiver={onArchiver}
+          onFournituresDisponibles={onFournituresDisponibles}
         />
 
         <GeneralSection intervention={intervention} />
 
         <AffectationSection
-          intervention={intervention}
-          loading={actionLoading}
-          onAffecterEquipe={onAffecterEquipe}
-          onAffecterTechnicien={onAffecterTechnicien}
-          onRefresh={onRefresh}
-        />
-
-        <OperationsSection operations={intervention.operation_intervention} />
+  intervention={intervention}
+  loading={actionLoading}
+  onAffecterEquipe={onAffecterEquipe}
+  onAffecterTechnicien={onAffecterTechnicien}
+  onDeleteAffectationTechnicien={onDeleteAffectationTechnicien}
+  onRefresh={onRefresh}
+/>
+<OperationsSection
+  interventionEtat={intervention.etat}
+  operations={intervention.operation_intervention}
+  loading={actionLoading}
+  onCreate={onCreateOperation}
+  onDelete={onDeleteOperation}
+/>
 
         <OccupationSection
-          interventionEtat={intervention.etat}
-          occupations={intervention.occupations}
-          loading={actionLoading}
-          onCreate={onCreateOccupation}
-          onDelete={onDeleteOccupation}
-        />
+  interventionEtat={intervention.etat}
+  occupations={intervention.occupations}
+  affectations={intervention.affectation_technicien}
+  operations={intervention.operation_intervention}
+  loading={actionLoading}
+  onCreate={onCreateOccupation}
+  onDelete={onDeleteOccupation}
+/>
 
         <CompteRenduSection
           interventionEtat={intervention.etat}
@@ -311,12 +332,16 @@ function AffectationSection({
   loading,
   onAffecterEquipe,
   onAffecterTechnicien,
+  onDeleteAffectationTechnicien,
   onRefresh,
 }: {
   intervention: Intervention;
   loading: boolean;
   onAffecterEquipe: (data: AffecterEquipeDto) => void | Promise<void>;
   onAffecterTechnicien: (data: AffecterTechnicienDto) => void | Promise<void>;
+  onDeleteAffectationTechnicien: (
+    idAffectation: number,
+  ) => void | Promise<void>;
   onRefresh: () => void | Promise<void>;
 }) {
   const [idEquipe, setIdEquipe] = useState(
@@ -435,12 +460,12 @@ function AffectationSection({
 
   const etat = (intervention.etat || '').toUpperCase();
 
-  const canAffecter = ![
-    'TERMINE',
-    'TRAVAUX_ACCEPTES',
-    'SOLDE',
-    'ARCHIVE',
-    'ANNULE',
+  const canAffecter = [
+    'EN_PREPARATION',
+    'ATTENTE_VALIDATION',
+    'VALIDEE',
+    'ATTENTE_REALISATION',
+    'ATTENTE_FOURNITURE',
   ].includes(etat);
 
   const equipeDejaAffectee =
@@ -451,6 +476,22 @@ function AffectationSection({
 
     if (!id || Number.isNaN(id)) return;
 
+    const equipeChangee =
+      Boolean(intervention.idEquipe) &&
+      String(intervention.idEquipe) !== String(id);
+
+    const hasTechniciens = Boolean(
+      intervention.affectation_technicien?.length,
+    );
+
+    if (equipeChangee && hasTechniciens) {
+      const confirmed = window.confirm(
+        "Changer l'équipe va supprimer tous les techniciens déjà affectés à cette intervention. Continuer ?",
+      );
+
+      if (!confirmed) return;
+    }
+
     try {
       setActionError('');
 
@@ -458,6 +499,9 @@ function AffectationSection({
         idEquipe: id,
         assignedBy: 'Admin',
       });
+
+      setIdTechnicien('');
+      setTempsTravail('');
 
       await onRefresh();
     } catch (error) {
@@ -497,6 +541,39 @@ function AffectationSection({
     }
   }
 
+  async function handleDeleteAffectation(idAffectation: number) {
+    const confirmed = window.confirm(
+      'Voulez-vous supprimer ce technicien de cette intervention ?',
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setActionError('');
+
+      await onDeleteAffectationTechnicien(idAffectation);
+
+      await onRefresh();
+    } catch (error) {
+      setActionError(
+        getApiErrorMessage(
+          error,
+          "Impossible de supprimer l'affectation technicien.",
+        ),
+      );
+    }
+  }
+
+  const equipeAffecteeLabel = intervention.equipe_maintenance
+    ? formatCodeLibelle(
+        intervention.equipe_maintenance.code,
+        intervention.equipe_maintenance.libelle,
+        intervention.equipe_maintenance.idEquipe,
+      )
+    : intervention.idEquipe
+      ? `Équipe #${intervention.idEquipe}`
+      : 'Aucune équipe affectée';
+
   return (
     <AppSection title="Affectations">
       {referenceError && (
@@ -511,99 +588,110 @@ function AffectationSection({
         </div>
       )}
 
-      {!canAffecter && (
-        <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-500">
-          Les affectations ne sont plus modifiables pour une intervention{' '}
-          {formatEtat(intervention.etat)}.
+      {canAffecter ? (
+        <div className="mb-5 grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_150px_auto]">
+          <select
+            value={idEquipe}
+            onChange={(event) => {
+              setIdEquipe(event.target.value);
+              setIdTechnicien('');
+            }}
+            disabled={loading}
+            className={`${appSelectClassName} min-w-0 truncate`}
+          >
+            <option value="">Sélectionner une équipe</option>
+
+            {intervention.idEquipe &&
+              !equipes.some(
+                (equipe) =>
+                  String(equipe.idEquipe) === String(intervention.idEquipe),
+              ) && (
+                <option value={intervention.idEquipe}>
+                  Équipe actuelle #{intervention.idEquipe}
+                </option>
+              )}
+
+            {equipes.map((equipe) => (
+              <option key={equipe.idEquipe} value={equipe.idEquipe}>
+                {formatCodeLibelle(
+                  equipe.code,
+                  equipe.libelle,
+                  equipe.idEquipe,
+                )}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            disabled={loading || !idEquipe || equipeDejaAffectee}
+            onClick={handleAffecterEquipe}
+            className={`${appSecondaryButtonClassName} whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            <Users size={17} />
+            {equipeDejaAffectee ? 'Équipe affectée' : 'Affecter équipe'}
+          </button>
+
+          <select
+            value={idTechnicien}
+            onChange={(event) => setIdTechnicien(event.target.value)}
+            disabled={loading || !selectedEquipeNumber}
+            className={`${appSelectClassName} min-w-0 truncate`}
+          >
+            <option value="">
+              {selectedEquipeNumber
+                ? 'Sélectionner un technicien de cette équipe'
+                : 'Sélectionner une équipe d’abord'}
+            </option>
+
+            {techniciensDeLEquipe.map((technicien) => (
+              <option
+                key={technicien.idTechnicien}
+                value={technicien.idTechnicien}
+              >
+                {formatTechnicien(technicien)}
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            value={tempsTravail}
+            onChange={(event) => setTempsTravail(event.target.value)}
+            disabled={loading || !selectedEquipeNumber}
+            className={`${appInputClassName} min-w-0`}
+            placeholder="Temps"
+          />
+
+          <button
+            type="button"
+            disabled={loading || !idTechnicien}
+            onClick={handleAffecterTechnicien}
+            className={`${appPrimaryButtonClassName} whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            <UserPlus size={17} />
+            Affecter
+          </button>
+        </div>
+      ) : (
+        <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-500">
+          <p>
+            Les affectations sont verrouillées dès que l’OT est en cours. Les
+            temps réels doivent être saisis dans la section Occupations.
+          </p>
+
+          <p className="mt-3 text-slate-700">
+            Équipe affectée :{' '}
+            <span className="font-black text-slate-950">
+              {equipeAffecteeLabel}
+            </span>
+          </p>
         </div>
       )}
 
-      <div className="mb-5 grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_150px_auto]">
-        <select
-          value={idEquipe}
-          onChange={(event) => {
-            setIdEquipe(event.target.value);
-            setIdTechnicien('');
-          }}
-          disabled={loading || !canAffecter}
-          className={`${appSelectClassName} min-w-0 truncate`}
-        >
-          <option value="">Sélectionner une équipe</option>
-
-          {intervention.idEquipe &&
-            !equipes.some(
-              (equipe) =>
-                String(equipe.idEquipe) === String(intervention.idEquipe),
-            ) && (
-              <option value={intervention.idEquipe}>
-                Équipe actuelle #{intervention.idEquipe}
-              </option>
-            )}
-
-          {equipes.map((equipe) => (
-            <option key={equipe.idEquipe} value={equipe.idEquipe}>
-              {formatCodeLibelle(equipe.code, equipe.libelle, equipe.idEquipe)}
-            </option>
-          ))}
-        </select>
-
-        <button
-          type="button"
-          disabled={
-            loading || !canAffecter || !idEquipe || equipeDejaAffectee
-          }
-          onClick={handleAffecterEquipe}
-          className={`${appSecondaryButtonClassName} whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50`}
-        >
-          <Users size={17} />
-          {equipeDejaAffectee ? 'Équipe affectée' : 'Affecter équipe'}
-        </button>
-
-        <select
-          value={idTechnicien}
-          onChange={(event) => setIdTechnicien(event.target.value)}
-          disabled={loading || !canAffecter || !selectedEquipeNumber}
-          className={`${appSelectClassName} min-w-0 truncate`}
-        >
-          <option value="">
-            {selectedEquipeNumber
-              ? 'Sélectionner un technicien de cette équipe'
-              : 'Sélectionner une équipe d’abord'}
-          </option>
-
-          {techniciensDeLEquipe.map((technicien) => (
-            <option
-              key={technicien.idTechnicien}
-              value={technicien.idTechnicien}
-            >
-              {formatTechnicien(technicien)}
-            </option>
-          ))}
-        </select>
-
-        <input
-          type="number"
-          min="0"
-          step="0.5"
-          value={tempsTravail}
-          onChange={(event) => setTempsTravail(event.target.value)}
-          disabled={loading || !canAffecter || !selectedEquipeNumber}
-          className={`${appInputClassName} min-w-0`}
-          placeholder="Temps"
-        />
-
-        <button
-          type="button"
-          disabled={loading || !canAffecter || !idTechnicien}
-          onClick={handleAffecterTechnicien}
-          className={`${appPrimaryButtonClassName} whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50`}
-        >
-          <UserPlus size={17} />
-          Affecter
-        </button>
-      </div>
-
-      {selectedEquipeNumber && techniciensDeLEquipe.length === 0 && (
+      {canAffecter && selectedEquipeNumber && techniciensDeLEquipe.length === 0 && (
         <div className="mb-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
           Aucun technicien trouvé pour cette équipe.
         </div>
@@ -618,6 +706,10 @@ function AffectationSection({
               <th className="py-3 pr-4 align-middle">Rôle</th>
               <th className="py-3 pr-4 align-middle">Temps</th>
               <th className="py-3 pr-4 align-middle">Affecté par</th>
+
+              {canAffecter && (
+                <th className="py-3 pr-4 text-right align-middle">Actions</th>
+              )}
             </tr>
           </thead>
 
@@ -654,12 +746,28 @@ function AffectationSection({
                       {affectation.affectePar || '-'}
                     </span>
                   </td>
+
+                  {canAffecter && (
+                    <td className="py-3 pr-4 text-right align-middle">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDeleteAffectation(affectation.idAffectation)
+                        }
+                        disabled={loading}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Supprimer le technicien"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))
             ) : (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={canAffecter ? 6 : 5}
                   className="py-6 text-center text-sm font-bold text-slate-500"
                 >
                   Aucun technicien affecté.
@@ -672,6 +780,8 @@ function AffectationSection({
     </AppSection>
   );
 }
+
+
 
 function formatCodeLibelle(
   code?: string | null,

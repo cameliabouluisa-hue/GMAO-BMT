@@ -66,4 +66,6 @@ export class UpdateLigneSortieStockDto {
   @IsOptional()
   @IsString()
   commentaire?: string | null;
+
+ 
 }

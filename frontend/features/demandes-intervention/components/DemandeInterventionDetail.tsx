@@ -1,7 +1,4 @@
-
-
 import {
-  AppBadge,
   AppFieldGrid,
   AppReadField,
   AppSection,
@@ -16,11 +13,9 @@ import {
   RefreshCcw,
   Send,
   ShieldCheck,
-  Wrench,
   XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
-import type { ReactNode } from 'react';
 
 import type { DemandeIntervention } from '../types/demande-intervention.types';
 
@@ -31,9 +26,17 @@ type Props = {
   onSoumettre: () => void;
   onAccepter: () => void;
   onRefuser: () => void;
-  onAccepterTravaux: () => void;
-  onRefuserTravaux: () => void;
 };
+
+type InterventionLiee = {
+  idIntervention: number;
+  code?: string | null;
+  libelle?: string | null;
+  typeMaintenance?: string | null;
+  etat?: string | null;
+};
+
+type AnyRecord = Record<string, unknown>;
 
 export function DemandeInterventionDetail({
   demande,
@@ -42,9 +45,9 @@ export function DemandeInterventionDetail({
   onSoumettre,
   onAccepter,
   onRefuser,
-  onAccepterTravaux,
-  onRefuserTravaux,
 }: Props) {
+  const interventionsLiees = getInterventionsLiees(demande);
+
   return (
     <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-5 bg-[#07576b] px-7 py-6 text-white md:flex-row md:items-start md:justify-between">
@@ -101,16 +104,11 @@ export function DemandeInterventionDetail({
           onSoumettre={onSoumettre}
           onAccepter={onAccepter}
           onRefuser={onRefuser}
-          onAccepterTravaux={onAccepterTravaux}
-          onRefuserTravaux={onRefuserTravaux}
         />
 
         <AppSection title="Informations générales">
           <AppFieldGrid>
-            <AppReadField
-              label="Identifiant"
-              value={demande.idDemande}
-            />
+            <AppReadField label="Identifiant" value={demande.idDemande} />
 
             <AppReadField
               label="Code"
@@ -127,15 +125,9 @@ export function DemandeInterventionDetail({
               value={formatDateTime(demande.dateDemande)}
             />
 
-            <AppReadField
-              label="Demandeur"
-              value={demande.demandeur}
-            />
+            <AppReadField label="Demandeur" value={demande.demandeur} />
 
-            <AppReadField
-              label="Créé par"
-              value={demande.createdBy}
-            />
+            <AppReadField label="Créé par" value={demande.createdBy} />
 
             <AppReadField
               label="Priorité"
@@ -148,23 +140,14 @@ export function DemandeInterventionDetail({
             />
           </AppFieldGrid>
 
-          <AppReadField
-            label="Description"
-            value={demande.description}
-          />
+          <AppReadField label="Description" value={demande.description} />
         </AppSection>
 
         <AppSection title="Matériel concerné">
           <AppFieldGrid>
-            <AppReadField
-              label="Matériel"
-              value={formatMateriel(demande)}
-            />
+            <AppReadField label="Matériel" value={formatMateriel(demande)} />
 
-            <AppReadField
-              label="ID matériel"
-              value={demande.idMateriel}
-            />
+            <AppReadField label="ID matériel" value={demande.idMateriel} />
 
             <AppReadField
               label="Matériel en panne"
@@ -195,15 +178,9 @@ export function DemandeInterventionDetail({
               value={formatDateTime(demande.dateValidation)}
             />
 
-            <AppReadField
-              label="Validée par"
-              value={demande.validatedBy}
-            />
+            <AppReadField label="Validée par" value={demande.validatedBy} />
 
-            <AppReadField
-              label="Motif refus"
-              value={demande.motifRefus}
-            />
+            <AppReadField label="Motif refus" value={demande.motifRefus} />
           </AppFieldGrid>
         </AppSection>
 
@@ -214,10 +191,7 @@ export function DemandeInterventionDetail({
               value={formatDateTime(demande.dateReceptionTravaux)}
             />
 
-            <AppReadField
-              label="Réception par"
-              value={demande.receptionBy}
-            />
+            <AppReadField label="Réception par" value={demande.receptionBy} />
 
             <AppReadField
               label="Motif refus travaux"
@@ -227,9 +201,9 @@ export function DemandeInterventionDetail({
         </AppSection>
 
         <AppSection title="Intervention générée">
-          {demande.intervention && demande.intervention.length > 0 ? (
+          {interventionsLiees.length > 0 ? (
             <div className="space-y-3">
-              {demande.intervention.map((intervention) => (
+              {interventionsLiees.map((intervention) => (
                 <div
                   key={intervention.idIntervention}
                   className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between"
@@ -251,7 +225,7 @@ export function DemandeInterventionDetail({
                     </span>
 
                     <span className="inline-flex rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-600 ring-1 ring-slate-200">
-                      {intervention.etat || '—'}
+                      {formatEtatIntervention(intervention.etat)}
                     </span>
 
                     <Link
@@ -309,9 +283,7 @@ export function DemandeInterventionDetail({
 
                     <div className="text-left md:text-right">
                       <p className="text-sm font-black text-slate-700">
-                        {historique.changedBy ||
-                          historique.createdBy ||
-                          '—'}
+                        {historique.changedBy || historique.createdBy || '—'}
                       </p>
 
                       <p className="mt-1 text-xs font-bold text-slate-400">
@@ -357,17 +329,15 @@ function WorkflowActions({
   onSoumettre,
   onAccepter,
   onRefuser,
-  onAccepterTravaux,
-  onRefuserTravaux,
 }: {
   statut?: string | null;
   actionLoading: boolean;
   onSoumettre: () => void;
   onAccepter: () => void;
   onRefuser: () => void;
-  onAccepterTravaux: () => void;
-  onRefuserTravaux: () => void;
 }) {
+  const currentStatut = normalizeDemandeStatut(statut);
+
   return (
     <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -382,93 +352,69 @@ function WorkflowActions({
         </div>
 
         <div className="flex flex-wrap gap-3">
-          {statut === 'EN_PREPARATION' && (
-  <button
-    type="button"
-    disabled={actionLoading}
-    onClick={onSoumettre}
-    className={appPrimaryButtonClassName}
-  >
-    <Send size={18} />
-    Soumettre
-  </button>
-)}
+          {currentStatut === 'EN_PREPARATION' && (
+            <button
+              type="button"
+              disabled={actionLoading}
+              onClick={onSoumettre}
+              className={appPrimaryButtonClassName}
+            >
+              <Send size={18} />
+              Soumettre
+            </button>
+          )}
 
-{statut === 'ATTENTE_PRISE_EN_COMPTE' && (
-  <>
-    <button
-      type="button"
-      disabled={actionLoading}
-      onClick={onAccepter}
-      className={appPrimaryButtonClassName}
-    >
-      <CheckCircle2 size={18} />
-      Accepter
-    </button>
+          {currentStatut === 'ATTENTE_PRISE_EN_COMPTE' && (
+            <>
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={onAccepter}
+                className={appPrimaryButtonClassName}
+              >
+                <CheckCircle2 size={18} />
+                Accepter
+              </button>
 
-    <button
-      type="button"
-      disabled={actionLoading}
-      onClick={onRefuser}
-      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-sm font-black text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      <XCircle size={18} />
-      Refuser
-    </button>
-  </>
-)}
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={onRefuser}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-sm font-black text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <XCircle size={18} />
+                Refuser
+              </button>
+            </>
+          )}
 
-{statut === 'TERMINE' && (
-  <>
-    <button
-      type="button"
-      disabled={actionLoading}
-      onClick={onAccepterTravaux}
-      className={appPrimaryButtonClassName}
-    >
-      <Wrench size={18} />
-      Accepter travaux
-    </button>
+          {currentStatut === 'ATTENTE_REALISATION' && (
+            <div className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-5 text-sm font-black text-blue-700">
+              <Clock3 size={18} />
+              En attente de réalisation
+            </div>
+          )}
 
-    <button
-      type="button"
-      disabled={actionLoading}
-      onClick={onRefuserTravaux}
-      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-red-100 bg-red-50 px-5 text-sm font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      <XCircle size={18} />
-      Refuser travaux
-    </button>
-  </>
-)}
+          {currentStatut === 'REFUSE' && (
+            <div className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-red-100 bg-red-50 px-5 text-sm font-black text-red-700">
+              <XCircle size={18} />
+              Demande refusée
+            </div>
+          )}
 
-{statut === 'ATTENTE_REALISATION' && (
-  <div className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-5 text-sm font-black text-blue-700">
-    <Clock3 size={18} />
-    En attente de réalisation
-  </div>
-)}
+          {currentStatut === 'SOLDE' && (
+            <div className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-5 text-sm font-black text-emerald-700">
+              <ShieldCheck size={18} />
+              Demande soldée
+            </div>
+          )}
 
-{statut === 'REFUSE' && (
-  <div className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-red-100 bg-red-50 px-5 text-sm font-black text-red-700">
-    <XCircle size={18} />
-    Demande refusée
-  </div>
-)}
-
-{statut === 'SOLDE' && (
-  <div className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-5 text-sm font-black text-emerald-700">
-    <ShieldCheck size={18} />
-    Demande soldée
-  </div>
-)}
-
-{statut === 'ANNULE' && (
-  <div className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-5 text-sm font-black text-slate-600">
-    <XCircle size={18} />
-    Demande annulée
-  </div>
-)}
+          {currentStatut === 'ANNULE' && (
+            <div className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-5 text-sm font-black text-slate-600">
+              <XCircle size={18} />
+              Demande annulée
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -482,28 +428,30 @@ function StatutBadge({
   statut?: string | null;
   variant?: 'default' | 'header';
 }) {
+  const currentStatut = normalizeDemandeStatut(statut);
+
   const base =
     variant === 'header'
       ? 'bg-white/15 text-white'
-      : statut === 'EN_PREPARATION'
+      : currentStatut === 'EN_PREPARATION'
         ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
-        : statut === 'ATTENTE_PRISE_EN_COMPTE'
+        : currentStatut === 'ATTENTE_PRISE_EN_COMPTE'
           ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
-          : statut === 'ATTENTE_REALISATION'
+          : currentStatut === 'ATTENTE_REALISATION'
             ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-100'
-            : statut === 'TERMINE' || statut === 'SOLDE'
-            ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
-            : statut === 'REFUSE'
-              ? 'bg-red-50 text-red-700 ring-1 ring-red-100'
-              : statut === 'ANNULE'
-                ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
-                : 'bg-orange-50 text-orange-700 ring-1 ring-orange-100';
+            : currentStatut === 'SOLDE'
+              ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
+              : currentStatut === 'REFUSE'
+                ? 'bg-red-50 text-red-700 ring-1 ring-red-100'
+                : currentStatut === 'ANNULE'
+                  ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
+                  : 'bg-orange-50 text-orange-700 ring-1 ring-orange-100';
 
   return (
     <span
       className={`inline-flex w-fit rounded-xl px-3 py-1.5 text-xs font-black ${base}`}
     >
-      {formatStatut(statut)}
+      {formatStatut(currentStatut)}
     </span>
   );
 }
@@ -564,23 +512,34 @@ function BooleanBadge({ value }: { value?: boolean | null }) {
   );
 }
 
+function normalizeDemandeStatut(statut?: string | null) {
+  if (
+    statut === 'TERMINE' ||
+    statut === 'TRAVAUX_ACCEPTES' ||
+    statut === 'TRAVAUX_REFUSES'
+  ) {
+    return 'ATTENTE_REALISATION';
+  }
+
+  return statut || '';
+}
+
 function formatStatut(statut?: string | null) {
+  const currentStatut = normalizeDemandeStatut(statut);
+
   const labels: Record<string, string> = {
     EN_PREPARATION: 'En préparation',
     ATTENTE_PRISE_EN_COMPTE: 'Attente prise en compte',
     ATTENTE_REALISATION: 'Attente réalisation',
-    TERMINE: 'Terminé',
     REFUSE: 'Refusé',
     SOLDE: 'Soldé',
     ANNULE: 'Annulé',
   };
 
-  if (!statut) return '—';
-  if (labels[statut]) return labels[statut];
+  if (!currentStatut) return '—';
+  if (labels[currentStatut]) return labels[currentStatut];
 
-  switch (statut) {
-    case 'EN_PREPARATION':
-      return 'En préparation';
+  switch (currentStatut) {
     case 'SOUMISE':
       return 'Soumise';
     case 'ACCEPTEE':
@@ -593,12 +552,8 @@ function formatStatut(statut?: string | null) {
       return 'Transformée';
     case 'ANNULEE':
       return 'Annulée';
-    case 'TRAVAUX_ACCEPTES':
-      return 'Travaux acceptés';
-    case 'TRAVAUX_REFUSES':
-      return 'Travaux refusés';
     default:
-      return statut || '—';
+      return currentStatut || '—';
   }
 }
 
@@ -630,6 +585,27 @@ function formatCriticite(criticite?: string | null) {
     default:
       return criticite || '—';
   }
+}
+
+function formatEtatIntervention(etat?: string | null) {
+  const labels: Record<string, string> = {
+    EN_PREPARATION: 'En préparation',
+    ATTENTE_VALIDATION: 'Attente validation',
+    VALIDEE: 'Validée',
+    ATTENTE_FOURNITURE: 'Attente fourniture',
+    ATTENTE_REALISATION: 'Attente réalisation',
+    EN_COURS: 'En cours',
+    TERMINE: 'Terminé',
+    TRAVAUX_REFUSES: 'Travaux refusés',
+    TRAVAUX_ACCEPTES: 'Travaux acceptés',
+    SOLDE: 'Soldé',
+    ARCHIVE: 'Archivé',
+    ANNULE: 'Annulé',
+  };
+
+  if (!etat) return '—';
+
+  return labels[etat] || etat;
 }
 
 function formatDateTime(value?: string | null) {
@@ -666,4 +642,100 @@ function getDemandeCodeLabel(code?: string | null, idDemande?: number) {
   if (code) return code;
   if (idDemande) return `DI-${String(idDemande).padStart(4, '0')}`;
   return 'DI';
+}
+
+function isRecord(value: unknown): value is AnyRecord {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getString(record: AnyRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function getNumber(record: AnyRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+
+    if (typeof value === 'number') {
+      return value;
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function mapInterventionLiee(record: AnyRecord): InterventionLiee | null {
+  const idIntervention = getNumber(record, ['idIntervention', 'id']);
+
+  if (!idIntervention) return null;
+
+  return {
+    idIntervention,
+    code: getString(record, ['code', 'numero']),
+    libelle: getString(record, ['libelle', 'titre', 'description']),
+    typeMaintenance: getString(record, ['typeMaintenance']),
+    etat: getString(record, ['etat', 'statut']),
+  };
+}
+
+function getInterventionsLiees(demande: DemandeIntervention) {
+  const record = demande as unknown as AnyRecord;
+
+  const relationCandidates = [
+    record.intervention,
+    record.interventions,
+    record.interventionLiee,
+    record.interventionsLiees,
+    record.intervention_liee,
+  ];
+
+  for (const candidate of relationCandidates) {
+    if (Array.isArray(candidate)) {
+      return candidate
+        .filter(isRecord)
+        .map(mapInterventionLiee)
+        .filter((item): item is InterventionLiee => Boolean(item));
+    }
+
+    if (isRecord(candidate)) {
+      const mapped = mapInterventionLiee(candidate);
+
+      return mapped ? [mapped] : [];
+    }
+  }
+
+  const idIntervention = getNumber(record, [
+    'idIntervention',
+    'idInterventionLiee',
+  ]);
+
+  if (!idIntervention) {
+    return [];
+  }
+
+  return [
+    {
+      idIntervention,
+      code: undefined,
+      libelle: undefined,
+      typeMaintenance: undefined,
+      etat: undefined,
+    },
+  ];
 }

@@ -9,7 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-
+import { CreateOperationInterventionDto } from './dto/create-operation-intervention.dto';
 import { AnnulerConsommationInterventionDto } from './dto/annuler-consommation-intervention.dto';
 import {
   AffecterEquipeDto,
@@ -25,7 +25,7 @@ import { CreateInterventionDto } from './dto/create-intervention.dto';
 import { CreateOccupationInterventionDto } from './dto/create-occupation-intervention.dto';
 import { UpdateInterventionDto } from './dto/update-intervention.dto';
 import { UpsertCompteRenduInterventionDto } from './dto/upsert-compte-rendu-intervention.dto';
-
+import { FournituresDisponiblesDto } from './dto/fournitures-disponibles.dto';
 import { InterventionConsommationService } from './intervention-consommation.service';
 import { InterventionService } from './intervention.service';
 
@@ -184,11 +184,40 @@ export class InterventionController {
   ) {
     return this.service.upsertCompteRendu(idIntervention, dto);
   }
+/* =========================
+   OPERATIONS
+========================= */
 
+@Get(':id/operations')
+getOperations(@Param('id', ParseIntPipe) idIntervention: number) {
+  return this.service.getOperations(idIntervention);
+}
+
+@Post(':id/operations')
+createOperation(
+  @Param('id', ParseIntPipe) idIntervention: number,
+  @Body() dto: CreateOperationInterventionDto,
+) {
+  return this.service.createOperation(idIntervention, dto);
+}
+
+@Delete(':id/operations/:idOperation')
+deleteOperation(
+  @Param('id', ParseIntPipe) idIntervention: number,
+  @Param('idOperation', ParseIntPipe) idOperation: number,
+) {
+  return this.service.deleteOperation(idIntervention, idOperation);
+}
   /* =========================
      CRUD INTERVENTION
   ========================= */
-
+@Post(':id/fournitures-disponibles')
+fournituresDisponibles(
+  @Param('id', ParseIntPipe) idIntervention: number,
+  @Body() dto: FournituresDisponiblesDto,
+) {
+  return this.service.fournituresDisponibles(idIntervention, dto);
+}
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) idIntervention: number) {
     return this.service.findOne(idIntervention);
@@ -236,6 +265,16 @@ export class InterventionController {
   retirerAffectation(@Param('id', ParseIntPipe) idAffectation: number) {
     return this.service.retirerAffectation(idAffectation);
   }
+  @Delete(':id/affectations/:idAffectation')
+deleteAffectationTechnicien(
+  @Param('id', ParseIntPipe) idIntervention: number,
+  @Param('idAffectation', ParseIntPipe) idAffectation: number,
+) {
+  return this.service.deleteAffectationTechnicien(
+    idIntervention,
+    idAffectation,
+  );
+}
 
   /* =========================
      WORKFLOW INTERVENTION
