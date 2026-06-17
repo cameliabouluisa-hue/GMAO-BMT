@@ -1,17 +1,19 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useState, type ElementType } from 'react';
 import {
   BarChart3,
   Box,
   ChevronDown,
   Gauge,
+  LogOut,
   Package,
   Wrench,
   X,
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 type MenuItem = {
   label: string;
@@ -78,6 +80,20 @@ const menuStructure: MenuModule[] = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout, isLoading } = useAuth();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      router.push('/auth/login');
+    } catch (error) {
+      console.error('[v0] Logout failed:', error);
+      setIsLoggingOut(false);
+    }
+  };
 
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({
     '/stock/menu': pathname.startsWith('/stock') || pathname.startsWith('/articles'),
@@ -230,8 +246,37 @@ export default function Sidebar() {
         </nav>
 
         {/* FOOTER */}
-        <div className="relative shrink-0 border-t border-white/10 bg-[#081f2d]/80 px-6 py-4 backdrop-blur">
-          <div className="flex items-center gap-3">
+        <div className="relative shrink-0 border-t border-white/10 bg-[#081f2d]/80 px-6 py-4 backdrop-blur space-y-3">
+          {/* User Info */}
+          {user && (
+            <div className="rounded-xl bg-white/10 p-3">
+              <p className="text-[11px] font-bold text-white/70 uppercase tracking-wider mb-1">
+                Utilisateur connecté
+              </p>
+              <p className="text-[12px] font-bold text-white truncate">
+                {user.fullName}
+              </p>
+              <p className="text-[11px] text-white/50 truncate">
+                {user.email}
+              </p>
+              <p className="text-[11px] text-cyan-200/70 mt-1.5">
+                Rôle: <span className="font-semibold">{user.role}</span>
+              </p>
+            </div>
+          )}
+
+          {/* Logout Button */}
+          <button
+            onClick={handleLogout}
+            disabled={isLoggingOut || isLoading}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-100 hover:text-red-50 text-[13px] font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <LogOut size={16} />
+            <span>Déconnexion</span>
+          </button>
+
+          {/* Version */}
+          <div className="flex items-center gap-3 pt-2 border-t border-white/10">
             <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
               <Box size={18} className="text-[#81C3D7]" />
             </div>

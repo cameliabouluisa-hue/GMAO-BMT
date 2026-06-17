@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 import { Select } from '@/components/select';
+
 import { getArticles } from '@/features/articles/services/article.service';
 import { getMagasins } from '@/features/articles/services/article-referentiel.service';
 import type { Article, Magasin } from '@/features/articles/types/article';
@@ -30,18 +31,19 @@ import {
   updateStockEntreeLigne,
 } from '@/features/stock-entrees/services/stock-entree.service';
 
-import {
-  getEmplacementsByMagasin,
-  type EmplacementMagasin,
-} from '@/features/stock-entrees/services/stock-entree-referentiel.service';
-
 import type {
-  CreateStockEntreeDto,
   LigneStockEntreeDto,
   MaterielReceptionDto,
   StockEntree,
   StockEntreeLigne,
 } from '@/features/stock-entrees/types/stock-entree';
+
+type EmplacementMagasin = {
+  idEmplacement: number;
+  code?: string | null;
+  libelle?: string | null;
+  actif?: boolean | null;
+};
 
 type EditableMateriel = {
   code: string;
@@ -51,7 +53,7 @@ type EditableMateriel = {
 type EditableLine = {
   articleId: string;
   magasinId: string;
-  emplacementId: string; // 'none' ou id string
+  emplacementId: string;
   quantite: string;
   prixUnitaire: string;
   numeroLot: string;
@@ -60,37 +62,83 @@ type EditableLine = {
   materiels: EditableMateriel[];
 };
 
+const API_BASE_URL = 'http://localhost:3001';
+
+async function getEmplacementsByMagasin(
+  idMagasin: number,
+): Promise<EmplacementMagasin[]> {
+  const res = await fetch(`${API_BASE_URL}/magasins/${idMagasin}/emplacements`, {
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    return [];
+  }
+
+  return res.json();
+}
+
 function toInputDate(value?: string | null) {
   if (!value) return '';
+
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) {
     return value.length >= 10 ? value.slice(0, 10) : '';
   }
+
   return date.toISOString().slice(0, 10);
 }
 
 function formatDate(value?: string | null) {
   if (!value) return '—';
+
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return '—';
+
   return date.toLocaleDateString('fr-FR');
 }
 
 function formatMoney(value?: number | string | null) {
   if (value === null || value === undefined || value === '') return '—';
-  const amount = Number(value);
-  if (Number.isNaN(amount)) return '—';
 
-  return new Intl.NumberFormat('fr-FR', {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) return '—';
+
+  return `${amount.toLocaleString('fr-FR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amount) + ' DA';
+  })} DA`;
+}
+
+function formatMoneyPdf(value?: number | string | null) {
+  if (value === null || value === undefined || value === '') return '—';
+
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) return '—';
+
+  const formatted = amount
+    .toFixed(2)
+    .replace('.', ',')
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
+  return `${formatted} DA`;
+}
+
+function cleanText(value?: string | number | null) {
+  if (value === null || value === undefined || value === '') return '—';
+
+  return String(value).replace(/\s+/g, ' ').trim();
 }
 
 function getStatusLabel(statut?: string | null) {
   if (statut === 'VALIDEE') return 'Validée';
   if (statut === 'BROUILLON') return 'Brouillon';
   if (statut === 'ANNULEE') return 'Annulée';
+
   return statut || '—';
 }
 
@@ -112,16 +160,20 @@ function getStatusClasses(statut?: string | null) {
 
 function buildArticleLabel(article: Partial<Article> | null | undefined) {
   if (!article) return '—';
-  const ref = article.reference || 'ART';
-  const des = article.designation || 'Sans désignation';
-  return `${ref} — ${des}`;
+
+  const reference = article.reference || 'ART';
+  const designation = article.designation || 'Sans désignation';
+
+  return `${reference} — ${designation}`;
 }
 
 function buildMagasinLabel(magasin: Partial<Magasin> | null | undefined) {
   if (!magasin) return '—';
+
   const code = magasin.code || 'MAG';
-  const lib = magasin.libelle || 'Sans libellé';
-  return `${code} — ${lib}`;
+  const libelle = magasin.libelle || 'Sans libellé';
+
+  return `${code} — ${libelle}`;
 }
 
 function syncMateriels(
@@ -168,9 +220,10 @@ function makeDraftFromLine(ligne: StockEntreeLigne): EditableLine {
 }
 
 function getLineTotal(draft: EditableLine) {
-  const qty = Number(draft.quantite || 0);
-  const prix = Number(draft.prixUnitaire || 0);
-  return qty * prix;
+  const quantite = Number(draft.quantite || 0);
+  const prixUnitaire = Number(draft.prixUnitaire || 0);
+
+  return quantite * prixUnitaire;
 }
 
 export default function DetailBonEntreePage() {
@@ -180,6 +233,7 @@ export default function DetailBonEntreePage() {
   const idEntree = useMemo(() => {
     const raw = params?.id;
     const value = Array.isArray(raw) ? raw[0] : raw;
+
     return Number(value);
   }, [params]);
 
@@ -196,6 +250,7 @@ export default function DetailBonEntreePage() {
   });
 
   const [lineDrafts, setLineDrafts] = useState<Record<number, EditableLine>>({});
+
   const [newLine, setNewLine] = useState<EditableLine>({
     articleId: '',
     magasinId: '',
@@ -217,21 +272,16 @@ export default function DetailBonEntreePage() {
   const [error, setError] = useState('');
 
   const totalLignes = entree?.lignes?.length ?? 0;
+
   const totalQuantite =
     entree?.lignes?.reduce(
       (sum, ligne) => sum + Number(ligne.quantite ?? 0),
       0,
     ) ?? 0;
+
   const totalMateriels =
     entree?.lignes?.reduce(
       (sum, ligne) => sum + (ligne.materiels?.length ?? 0),
-      0,
-    ) ?? 0;
-  const montantTotal =
-    entree?.lignes?.reduce(
-      (sum, ligne) =>
-        sum +
-        Number(ligne.quantite ?? 0) * Number(ligne.prixUnitaire ?? 0),
       0,
     ) ?? 0;
 
@@ -245,28 +295,21 @@ export default function DetailBonEntreePage() {
     label: buildMagasinLabel(magasin),
   }));
 
-  const ensureEmplacements = useCallback(async (idMagasin?: number | null) => {
-    if (!idMagasin || Number.isNaN(idMagasin)) return;
+  const ensureEmplacements = useCallback(
+    async (idMagasin?: number | null) => {
+      if (!idMagasin || Number.isNaN(idMagasin)) return;
 
-    setEmplacementsByMagasin((prev) => {
-      if (prev[idMagasin]) return prev;
-      return prev;
-    });
+      if (emplacementsByMagasin[idMagasin]) return;
 
-    try {
       const data = await getEmplacementsByMagasin(idMagasin);
 
       setEmplacementsByMagasin((prev) => ({
         ...prev,
         [idMagasin]: data,
       }));
-    } catch {
-      setEmplacementsByMagasin((prev) => ({
-        ...prev,
-        [idMagasin]: [],
-      }));
-    }
-  }, []);
+    },
+    [emplacementsByMagasin],
+  );
 
   const loadData = useCallback(
     async (silent = false) => {
@@ -301,16 +344,29 @@ export default function DetailBonEntreePage() {
         });
 
         const drafts: Record<number, EditableLine> = {};
+        const idsMagasins = new Set<number>();
 
         for (const ligne of entreeData.lignes ?? []) {
           drafts[ligne.idLigneEntreeStock] = makeDraftFromLine(ligne);
 
           if (ligne.idMagasin) {
-            ensureEmplacements(ligne.idMagasin);
+            idsMagasins.add(ligne.idMagasin);
           }
         }
 
         setLineDrafts(drafts);
+
+        const emplacementsEntries = await Promise.all(
+          Array.from(idsMagasins).map(async (idMagasin) => {
+            const data = await getEmplacementsByMagasin(idMagasin);
+            return [idMagasin, data] as const;
+          }),
+        );
+
+        setEmplacementsByMagasin((prev) => ({
+          ...prev,
+          ...Object.fromEntries(emplacementsEntries),
+        }));
       } catch (err) {
         setError(
           err instanceof Error
@@ -322,7 +378,7 @@ export default function DetailBonEntreePage() {
         setRefreshing(false);
       }
     },
-    [ensureEmplacements, idEntree],
+    [idEntree],
   );
 
   useEffect(() => {
@@ -331,11 +387,13 @@ export default function DetailBonEntreePage() {
 
   function getArticleById(id?: string) {
     if (!id) return null;
+
     return articles.find((article) => article.idArticle === Number(id)) ?? null;
   }
 
   function isArticleSerialise(id?: string) {
     const article = getArticleById(id);
+
     return Boolean(article?.serialise);
   }
 
@@ -343,25 +401,26 @@ export default function DetailBonEntreePage() {
     const idMagasin = Number(magasinId);
     const items = emplacementsByMagasin[idMagasin] ?? [];
 
-    if (items.length === 0) {
-      return [{ value: 'none', label: 'Aucun emplacement' }];
-    }
-
     return [
       { value: 'none', label: 'Aucun emplacement' },
-      ...items.map((item) => ({
-        value: String(item.idEmplacement),
-        label:
-          item.code && item.libelle
-            ? `${item.code} — ${item.libelle}`
-            : item.code || item.libelle || `Emplacement #${item.idEmplacement}`,
-      })),
+      ...items
+        .filter((item) => item.actif !== false)
+        .map((item) => ({
+          value: String(item.idEmplacement),
+          label:
+            item.code && item.libelle
+              ? `${item.code} — ${item.libelle}`
+              : item.code ||
+                item.libelle ||
+                `Emplacement #${item.idEmplacement}`,
+        })),
     ];
   }
 
   function updateDraftLine(idLigne: number, patch: Partial<EditableLine>) {
     setLineDrafts((prev) => {
       const current = prev[idLigne];
+
       if (!current) return prev;
 
       const next: EditableLine = {
@@ -369,16 +428,16 @@ export default function DetailBonEntreePage() {
         ...patch,
       };
 
-      const articleSerialise = isArticleSerialise(next.articleId);
-      const qty = Number(next.quantite || 0);
-
       if (patch.magasinId !== undefined) {
         next.emplacementId = 'none';
         ensureEmplacements(Number(patch.magasinId));
       }
 
+      const articleSerialise = isArticleSerialise(next.articleId);
+      const quantite = Number(next.quantite || 0);
+
       if (articleSerialise) {
-        next.materiels = syncMateriels(next.materiels, qty);
+        next.materiels = syncMateriels(next.materiels, quantite);
       } else {
         next.materiels = [];
       }
@@ -397,16 +456,16 @@ export default function DetailBonEntreePage() {
         ...patch,
       };
 
-      const articleSerialise = isArticleSerialise(next.articleId);
-      const qty = Number(next.quantite || 0);
-
       if (patch.magasinId !== undefined) {
         next.emplacementId = 'none';
         ensureEmplacements(Number(patch.magasinId));
       }
 
+      const articleSerialise = isArticleSerialise(next.articleId);
+      const quantite = Number(next.quantite || 0);
+
       if (articleSerialise) {
-        next.materiels = syncMateriels(next.materiels, qty);
+        next.materiels = syncMateriels(next.materiels, quantite);
       } else {
         next.materiels = [];
       }
@@ -423,10 +482,15 @@ export default function DetailBonEntreePage() {
   ) {
     setLineDrafts((prev) => {
       const current = prev[idLigne];
+
       if (!current) return prev;
 
       const materiels = [...current.materiels];
-      const item = materiels[index] ?? { code: '', numeroSerie: '' };
+      const item = materiels[index] ?? {
+        code: '',
+        numeroSerie: '',
+      };
+
       materiels[index] = {
         ...item,
         [field]: value,
@@ -449,7 +513,10 @@ export default function DetailBonEntreePage() {
   ) {
     setNewLine((prev) => {
       const materiels = [...prev.materiels];
-      const item = materiels[index] ?? { code: '', numeroSerie: '' };
+      const item = materiels[index] ?? {
+        code: '',
+        numeroSerie: '',
+      };
 
       materiels[index] = {
         ...item,
@@ -468,7 +535,7 @@ export default function DetailBonEntreePage() {
       idArticle: Number(draft.articleId),
       idMagasin: Number(draft.magasinId),
       quantite: Number(draft.quantite),
-      commentaire: draft.commentaire || undefined,
+      commentaire: draft.commentaire.trim() || undefined,
     };
 
     if (draft.emplacementId && draft.emplacementId !== 'none') {
@@ -525,6 +592,7 @@ export default function DetailBonEntreePage() {
 
   async function handleSaveLine(idLigne: number) {
     const draft = lineDrafts[idLigne];
+
     if (!draft || !entree) return;
 
     try {
@@ -542,7 +610,7 @@ export default function DetailBonEntreePage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Erreur lors de la modification de la ligne.",
+          : 'Erreur lors de la modification de la ligne.',
       );
     } finally {
       setSavingLineId(null);
@@ -554,6 +622,7 @@ export default function DetailBonEntreePage() {
 
     try {
       setError('');
+
       await deleteStockEntreeLigne(entree.idEntreeStock, idLigne);
       await loadData(true);
     } catch (err) {
@@ -608,7 +677,7 @@ export default function DetailBonEntreePage() {
       setExportingPdf(true);
 
       const pdf = new jsPDF({
-        orientation: 'portrait',
+        orientation: 'landscape',
         unit: 'pt',
         format: 'a4',
       });
@@ -616,176 +685,184 @@ export default function DetailBonEntreePage() {
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
 
-      pdf.setFillColor(6, 71, 90);
-      pdf.rect(0, 0, pageWidth, 88, 'F');
+      const primary: [number, number, number] = [6, 71, 90];
+      const textDark: [number, number, number] = [15, 23, 42];
+      const textMuted: [number, number, number] = [100, 116, 139];
+      const border: [number, number, number] = [226, 232, 240];
+      const soft: [number, number, number] = [248, 250, 252];
+
+      pdf.setFillColor(...primary);
+      pdf.rect(0, 0, pageWidth, 86, 'F');
 
       pdf.setTextColor(255, 255, 255);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(18);
-      pdf.text('GMAO BMT', 30, 32);
+      pdf.text('GMAO BMT', 36, 34);
 
-      pdf.setFontSize(9);
       pdf.setFont('helvetica', 'normal');
-      pdf.text('Port · Maintenance · Équipements · Stock', 30, 48);
+      pdf.setFontSize(9);
+      pdf.text('Port · Maintenance · Équipements · Stock', 36, 51);
 
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(16);
-      pdf.text("BON D’ENTRÉE STOCK", pageWidth - 30, 32, {
+      pdf.setFontSize(15);
+      pdf.text("BON D’ENTRÉE STOCK", pageWidth - 36, 34, {
         align: 'right',
       });
 
-      pdf.setFontSize(10);
       pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
       pdf.text(
         `Numéro : ${entree.numero || `BE-${entree.idEntreeStock}`}`,
-        pageWidth - 30,
-        48,
-        { align: 'right' },
+        pageWidth - 36,
+        51,
+        {
+          align: 'right',
+        },
       );
 
-      let cursorY = 120;
+      let y = 122;
 
-      pdf.setTextColor(15, 23, 42);
+      pdf.setTextColor(...textDark);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(13);
-      pdf.text('Informations du bon', 30, cursorY);
+      pdf.text('Informations du bon', 36, y);
 
-      cursorY += 14;
+      y += 16;
 
-      pdf.setDrawColor(226, 232, 240);
-      pdf.setFillColor(248, 250, 252);
-      pdf.roundedRect(30, cursorY, pageWidth - 60, 92, 10, 10, 'FD');
+      pdf.setDrawColor(...border);
+      pdf.setFillColor(...soft);
+      pdf.roundedRect(36, y, pageWidth - 72, 82, 10, 10, 'FD');
 
-      pdf.setFontSize(9);
-      pdf.setTextColor(100, 116, 139);
+      pdf.setFontSize(8);
       pdf.setFont('helvetica', 'bold');
-      pdf.text('Numéro', 42, cursorY + 22);
-      pdf.text('Date réception', 160, cursorY + 22);
-      pdf.text('Statut', 290, cursorY + 22);
-      pdf.text('Commentaire', 42, cursorY + 54);
+      pdf.setTextColor(...textMuted);
+      pdf.text('Numéro', 54, y + 24);
+      pdf.text('Date réception', 190, y + 24);
+      pdf.text('Statut', 340, y + 24);
+      pdf.text('Commentaire', 490, y + 24);
 
-      pdf.setTextColor(15, 23, 42);
       pdf.setFont('helvetica', 'normal');
-      pdf.text(entree.numero || `BE-${entree.idEntreeStock}`, 42, cursorY + 38);
-      pdf.text(formatDate(entree.dateReception), 160, cursorY + 38);
-      pdf.text(getStatusLabel(entree.statut), 290, cursorY + 38);
-      pdf.text(entree.commentaire || '—', 130, cursorY + 70);
+      pdf.setTextColor(...textDark);
+      pdf.text(cleanText(entree.numero), 54, y + 42);
+      pdf.text(formatDate(entree.dateReception), 190, y + 42);
+      pdf.text(getStatusLabel(entree.statut), 340, y + 42);
 
-      cursorY += 122;
-
-      pdf.setTextColor(15, 23, 42);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(13);
-      pdf.text('Résumé', 30, cursorY);
-
-      cursorY += 18;
-
-      const cardWidth = (pageWidth - 75) / 4;
-      const cardY = cursorY;
-      const summary = [
-        ['Nombre de lignes', String(totalLignes)],
-        ['Quantité totale', String(totalQuantite)],
-        ['Matériels', String(totalMateriels)],
-        ['Montant total', formatMoney(montantTotal)],
-      ];
-
-      summary.forEach(([label, value], index) => {
-        const x = 30 + index * (cardWidth + 5);
-
-        pdf.setDrawColor(226, 232, 240);
-        pdf.setFillColor(255, 255, 255);
-        pdf.roundedRect(x, cardY, cardWidth, 58, 8, 8, 'FD');
-
-        pdf.setTextColor(100, 116, 139);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(8);
-        pdf.text(label, x + 12, cardY + 18);
-
-        pdf.setTextColor(15, 23, 42);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(12);
-        pdf.text(value, x + 12, cardY + 40);
+      pdf.text(cleanText(entree.commentaire), 490, y + 42, {
+        maxWidth: pageWidth - 540,
       });
 
-      cursorY += 82;
+      y += 125;
+
+      pdf.setTextColor(...textDark);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(13);
+      pdf.text('Lignes du bon d’entrée', 36, y);
+
+      y += 16;
 
       const rows =
         entree.lignes?.map((ligne, index) => {
-          const totalLigne =
-            Number(ligne.quantite ?? 0) * Number(ligne.prixUnitaire ?? 0);
+          const quantite = Number(ligne.quantite ?? 0);
+          const prixUnitaire = Number(ligne.prixUnitaire ?? 0);
+          const totalLigne = quantite * prixUnitaire;
 
-          const materielsTxt =
-            ligne.materiels && ligne.materiels.length > 0
-              ? ligne.materiels
-                  .map((m) =>
-                    m.numeroSerie
-                      ? `${m.code || '-'} (${m.numeroSerie})`
-                      : `${m.code || '-'}`,
-                  )
-                  .join('\n')
-              : '—';
+          const article =
+            ligne.article?.reference && ligne.article?.designation
+              ? `${ligne.article.reference} — ${ligne.article.designation}`
+              : ligne.article?.reference ||
+                ligne.article?.designation ||
+                `Article #${ligne.idArticle}`;
+
+          const magasin =
+            ligne.magasin?.code && ligne.magasin?.libelle
+              ? `${ligne.magasin.code} — ${ligne.magasin.libelle}`
+              : ligne.magasin?.code ||
+                ligne.magasin?.libelle ||
+                `Magasin #${ligne.idMagasin}`;
 
           return [
             String(index + 1),
-            ligne.article?.reference ||
-              ligne.article?.designation ||
-              `Article #${ligne.idArticle}`,
-            ligne.magasin?.code || `Magasin #${ligne.idMagasin}`,
-            String(Number(ligne.quantite ?? 0)),
-            formatMoney(ligne.prixUnitaire),
-            formatMoney(totalLigne),
-            ligne.numeroLot || '—',
-            formatDate(ligne.datePeremption),
-            materielsTxt,
-            ligne.commentaire || '—',
+            cleanText(article),
+            cleanText(magasin),
+            String(quantite),
+            formatMoneyPdf(prixUnitaire),
+            formatMoneyPdf(totalLigne),
           ];
         }) ?? [];
 
       autoTable(pdf, {
-        startY: cursorY,
-        head: [
-          [
-            '#',
-            'Article',
-            'Magasin',
-            'Qté',
-            'Prix unitaire',
-            'Total',
-            'Lot',
-            'Péremption',
-            'Matériels',
-            'Commentaire',
-          ],
-        ],
+        startY: y,
+        head: [['#', 'Article', 'Magasin', 'Qté', 'Prix unitaire', 'Total']],
         body: rows,
+        theme: 'grid',
+        margin: {
+          left: 36,
+          right: 36,
+        },
         styles: {
-          fontSize: 7,
-          cellPadding: 5,
-          textColor: [15, 23, 42],
-          valign: 'middle',
-          lineColor: [226, 232, 240],
+          font: 'helvetica',
+          fontSize: 8,
+          cellPadding: 6,
+          textColor: textDark,
+          lineColor: border,
           lineWidth: 0.5,
+          overflow: 'linebreak',
+          valign: 'middle',
         },
         headStyles: {
-          fillColor: [6, 71, 90],
+          fillColor: primary,
           textColor: [255, 255, 255],
           fontStyle: 'bold',
+          halign: 'center',
         },
         alternateRowStyles: {
-          fillColor: [248, 250, 252],
+          fillColor: soft,
         },
-        margin: { left: 30, right: 30 },
+        columnStyles: {
+          0: {
+            cellWidth: 28,
+            halign: 'center',
+          },
+          1: {
+            cellWidth: 190,
+          },
+          2: {
+            cellWidth: 230,
+          },
+          3: {
+            cellWidth: 45,
+            halign: 'center',
+          },
+          4: {
+            cellWidth: 130,
+            halign: 'right',
+          },
+          5: {
+            cellWidth: 130,
+            halign: 'right',
+            fontStyle: 'bold',
+          },
+        },
       });
 
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(8);
-      pdf.setTextColor(100, 116, 139);
-      pdf.text(
-        `Généré le ${new Date().toLocaleString('fr-FR')}`,
-        30,
-        pageHeight - 20,
-      );
-      pdf.text('Page 1', pageWidth - 30, pageHeight - 20, { align: 'right' });
+      const pageCount = pdf.getNumberOfPages();
+
+      for (let page = 1; page <= pageCount; page += 1) {
+        pdf.setPage(page);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8);
+        pdf.setTextColor(...textMuted);
+
+        pdf.text(
+          `Généré le ${new Date().toLocaleString('fr-FR')}`,
+          36,
+          pageHeight - 24,
+        );
+
+        pdf.text(`Page ${page}/${pageCount}`, pageWidth - 36, pageHeight - 24, {
+          align: 'right',
+        });
+      }
 
       pdf.save(`${entree.numero || `BE-${entree.idEntreeStock}`}.pdf`);
     } finally {
@@ -843,8 +920,8 @@ export default function DetailBonEntreePage() {
           <div className="bg-gradient-to-r from-[#0a556b] to-[#0d6f87] px-6 py-6 text-white">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="flex items-start gap-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 text-white">
-                  <Package size={30} />
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-white">
+                  <Package size={28} />
                 </div>
 
                 <div>
@@ -853,7 +930,7 @@ export default function DetailBonEntreePage() {
                   </p>
 
                   <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <h1 className="text-4xl font-black tracking-tight">
+                    <h1 className="text-3xl font-black tracking-tight">
                       {entree.numero || `BE-${entree.idEntreeStock}`}
                     </h1>
 
@@ -866,7 +943,7 @@ export default function DetailBonEntreePage() {
                     </span>
                   </div>
 
-                  <p className="mt-2 text-lg font-semibold text-white/85">
+                  <p className="mt-2 text-sm font-semibold text-white/85">
                     Bon d’entrée #{entree.idEntreeStock} · {totalLignes} ligne(s)
                   </p>
                 </div>
@@ -876,18 +953,24 @@ export default function DetailBonEntreePage() {
                 <button
                   type="button"
                   onClick={() => loadData(true)}
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-white/15 px-5 text-sm font-black text-white transition hover:bg-white/20"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white/15 px-4 text-sm font-black text-white transition hover:bg-white/20"
                 >
-                  <RefreshCcw size={18} className={refreshing ? 'animate-spin' : ''} />
+                  <RefreshCcw
+                    size={17}
+                    className={refreshing ? 'animate-spin' : ''}
+                  />
                   Actualiser
                 </button>
 
                 <button
                   type="button"
                   onClick={handleExportPdf}
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-white px-5 text-sm font-black text-[#06475a] shadow-sm transition hover:bg-slate-50"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-black text-[#06475a] shadow-sm transition hover:bg-slate-50"
                 >
-                  <Download size={18} className={exportingPdf ? 'animate-pulse' : ''} />
+                  <Download
+                    size={17}
+                    className={exportingPdf ? 'animate-pulse' : ''}
+                  />
                   Exporter PDF
                 </button>
               </div>
@@ -900,16 +983,19 @@ export default function DetailBonEntreePage() {
               label="Date"
               value={formatDate(entree.dateReception)}
             />
+
             <SummaryCard
               icon={<Layers3 size={20} />}
               label="Lignes"
               value={String(totalLignes)}
             />
+
             <SummaryCard
               icon={<Boxes size={20} />}
               label="Quantité"
               value={`+ ${totalQuantite}`}
             />
+
             <SummaryCard
               icon={<Warehouse size={20} />}
               label="Matériels"
@@ -920,7 +1006,7 @@ export default function DetailBonEntreePage() {
           <div className="px-6 pb-6">
             <SectionTitle title="Généralités" />
 
-            <div className="rounded-[26px] border border-slate-200 bg-slate-50/70 p-5">
+            <div className="mt-3 rounded-[26px] border border-slate-200 bg-slate-50/70 p-5">
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Date réception *">
                   <input
@@ -932,7 +1018,7 @@ export default function DetailBonEntreePage() {
                         dateReception: event.target.value,
                       }))
                     }
-                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                    className={inputClassName}
                   />
                 </Field>
 
@@ -947,7 +1033,7 @@ export default function DetailBonEntreePage() {
                       }))
                     }
                     placeholder="Commentaire"
-                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                    className={inputClassName}
                   />
                 </Field>
               </div>
@@ -956,9 +1042,12 @@ export default function DetailBonEntreePage() {
                 <button
                   type="button"
                   onClick={handleSaveHeader}
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#06475a] px-5 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#06475a] px-4 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
                 >
-                  <Save size={18} className={savingHeader ? 'animate-pulse' : ''} />
+                  <Save
+                    size={17}
+                    className={savingHeader ? 'animate-pulse' : ''}
+                  />
                   Enregistrer
                 </button>
               </div>
@@ -974,6 +1063,7 @@ export default function DetailBonEntreePage() {
 
           {(entree.lignes ?? []).map((ligne, index) => {
             const draft = lineDrafts[ligne.idLigneEntreeStock];
+
             if (!draft) return null;
 
             const isSerialise = isArticleSerialise(draft.articleId);
@@ -984,19 +1074,19 @@ export default function DetailBonEntreePage() {
                 key={ligne.idLigneEntreeStock}
                 className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm"
               >
-                <div className="border-b border-slate-100 px-5 py-5">
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="flex items-start gap-4">
-                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
-                        <Layers3 size={24} />
+                <div className="border-b border-slate-100 px-5 py-4">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex min-w-0 items-start gap-4">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                        <Layers3 size={22} />
                       </div>
 
-                      <div>
-                        <h3 className="text-[30px] font-black leading-none text-slate-950">
+                      <div className="min-w-0">
+                        <h3 className="text-2xl font-black leading-tight text-slate-950">
                           Ligne {index + 1}
                         </h3>
 
-                        <p className="mt-2 text-lg font-black text-slate-500">
+                        <p className="mt-1 truncate text-sm font-black text-slate-500">
                           Actuel :{' '}
                           {ligne.article?.reference ||
                             ligne.article?.designation ||
@@ -1004,25 +1094,27 @@ export default function DetailBonEntreePage() {
                         </p>
 
                         {isSerialise && (
-                          <p className="mt-1 text-base font-black text-orange-600">
+                          <p className="mt-1 text-sm font-black text-orange-600">
                             Article sérialisé
                           </p>
                         )}
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700">
+                    <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                      <div className="inline-flex h-11 items-center rounded-xl bg-slate-100 px-4 text-sm font-black text-slate-700">
                         Total ligne : {formatMoney(getLineTotal(draft))}
                       </div>
 
                       <button
                         type="button"
-                        onClick={() => handleSaveLine(ligne.idLigneEntreeStock)}
-                        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#06475a] px-5 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
+                        onClick={() =>
+                          handleSaveLine(ligne.idLigneEntreeStock)
+                        }
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#06475a] px-4 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
                       >
                         <Save
-                          size={18}
+                          size={17}
                           className={
                             savingLineId === ligne.idLigneEntreeStock
                               ? 'animate-pulse'
@@ -1037,10 +1129,10 @@ export default function DetailBonEntreePage() {
                         onClick={() =>
                           handleDeleteLine(ligne.idLigneEntreeStock)
                         }
-                        className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100"
                         title="Supprimer la ligne"
                       >
-                        <Trash2 size={18} />
+                        <Trash2 size={17} />
                       </button>
                     </div>
                   </div>
@@ -1089,7 +1181,7 @@ export default function DetailBonEntreePage() {
                               quantite: event.target.value,
                             })
                           }
-                          className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                          className={inputClassName}
                         />
                       </Field>
                     </div>
@@ -1107,9 +1199,10 @@ export default function DetailBonEntreePage() {
                             })
                           }
                           placeholder="Prix"
-                          className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                          className={inputClassName}
                         />
-                        <p className="mt-2 text-sm font-black text-slate-400">
+
+                        <p className="mt-2 text-xs font-black text-slate-400">
                           {formatMoney(draft.prixUnitaire)}
                         </p>
                       </Field>
@@ -1126,7 +1219,7 @@ export default function DetailBonEntreePage() {
                             })
                           }
                           placeholder="Lot"
-                          className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                          className={inputClassName}
                         />
                       </Field>
                     </div>
@@ -1141,7 +1234,7 @@ export default function DetailBonEntreePage() {
                               datePeremption: event.target.value,
                             })
                           }
-                          className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                          className={inputClassName}
                         />
                       </Field>
                     </div>
@@ -1172,7 +1265,7 @@ export default function DetailBonEntreePage() {
                             })
                           }
                           placeholder="Commentaire"
-                          className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                          className={inputClassName}
                         />
                       </Field>
                     </div>
@@ -1180,10 +1273,11 @@ export default function DetailBonEntreePage() {
 
                   {isSerialise && (
                     <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-                      <h4 className="text-xl font-black text-[#06475a]">
+                      <h4 className="text-base font-black uppercase tracking-[0.18em] text-[#06475a]">
                         Matériels sérialisés
                       </h4>
-                      <p className="mt-1 text-sm font-semibold text-slate-500">
+
+                      <p className="mt-2 text-sm font-semibold text-slate-500">
                         Pour cet article, la quantité doit correspondre au nombre
                         de matériels saisis.
                       </p>
@@ -1195,7 +1289,9 @@ export default function DetailBonEntreePage() {
                             className="rounded-2xl border border-slate-200 bg-white p-4"
                           >
                             <div className="grid gap-4 md:grid-cols-2">
-                              <Field label={`Code matériel ${materialIndex + 1} *`}>
+                              <Field
+                                label={`Code matériel ${materialIndex + 1} *`}
+                              >
                                 <input
                                   type="text"
                                   value={materiel.code}
@@ -1208,7 +1304,7 @@ export default function DetailBonEntreePage() {
                                     )
                                   }
                                   placeholder="Exemple : MAT-GE-001"
-                                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                                  className={inputClassName}
                                 />
                               </Field>
 
@@ -1225,7 +1321,7 @@ export default function DetailBonEntreePage() {
                                     )
                                   }
                                   placeholder="Exemple : SN-GE-001"
-                                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                                  className={inputClassName}
                                 />
                               </Field>
                             </div>
@@ -1241,17 +1337,18 @@ export default function DetailBonEntreePage() {
         </section>
 
         <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 px-5 py-5">
+          <div className="border-b border-slate-100 px-5 py-4">
             <div className="flex items-start gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
-                <Package size={24} />
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                <Package size={22} />
               </div>
 
               <div>
-                <h3 className="text-[30px] font-black leading-none text-slate-950">
+                <h3 className="text-2xl font-black leading-tight text-slate-950">
                   Ajouter une nouvelle ligne
                 </h3>
-                <p className="mt-2 text-base font-semibold text-slate-500">
+
+                <p className="mt-1 text-sm font-semibold text-slate-500">
                   La ligne sera ajoutée au bon et le stock sera augmenté.
                 </p>
               </div>
@@ -1264,7 +1361,11 @@ export default function DetailBonEntreePage() {
                 <Field label="Article">
                   <Select
                     value={newLine.articleId}
-                    onValueChange={(value) => updateNewLine({ articleId: value })}
+                    onValueChange={(value) =>
+                      updateNewLine({
+                        articleId: value,
+                      })
+                    }
                     placeholder="Sélectionner un article"
                     items={articleOptions}
                   />
@@ -1275,7 +1376,11 @@ export default function DetailBonEntreePage() {
                 <Field label="Magasin">
                   <Select
                     value={newLine.magasinId}
-                    onValueChange={(value) => updateNewLine({ magasinId: value })}
+                    onValueChange={(value) =>
+                      updateNewLine({
+                        magasinId: value,
+                      })
+                    }
                     placeholder="Sélectionner un magasin"
                     items={magasinOptions}
                   />
@@ -1289,9 +1394,11 @@ export default function DetailBonEntreePage() {
                     min="1"
                     value={newLine.quantite}
                     onChange={(event) =>
-                      updateNewLine({ quantite: event.target.value })
+                      updateNewLine({
+                        quantite: event.target.value,
+                      })
                     }
-                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                    className={inputClassName}
                   />
                 </Field>
               </div>
@@ -1304,10 +1411,12 @@ export default function DetailBonEntreePage() {
                     step="0.01"
                     value={newLine.prixUnitaire}
                     onChange={(event) =>
-                      updateNewLine({ prixUnitaire: event.target.value })
+                      updateNewLine({
+                        prixUnitaire: event.target.value,
+                      })
                     }
                     placeholder="Prix"
-                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                    className={inputClassName}
                   />
                 </Field>
               </div>
@@ -1318,10 +1427,12 @@ export default function DetailBonEntreePage() {
                     type="text"
                     value={newLine.numeroLot}
                     onChange={(event) =>
-                      updateNewLine({ numeroLot: event.target.value })
+                      updateNewLine({
+                        numeroLot: event.target.value,
+                      })
                     }
                     placeholder="Lot"
-                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                    className={inputClassName}
                   />
                 </Field>
               </div>
@@ -1332,9 +1443,11 @@ export default function DetailBonEntreePage() {
                     type="date"
                     value={newLine.datePeremption}
                     onChange={(event) =>
-                      updateNewLine({ datePeremption: event.target.value })
+                      updateNewLine({
+                        datePeremption: event.target.value,
+                      })
                     }
-                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                    className={inputClassName}
                   />
                 </Field>
               </div>
@@ -1344,7 +1457,9 @@ export default function DetailBonEntreePage() {
                   <Select
                     value={newLine.emplacementId}
                     onValueChange={(value) =>
-                      updateNewLine({ emplacementId: value })
+                      updateNewLine({
+                        emplacementId: value,
+                      })
                     }
                     placeholder="Choisir un emplacement"
                     items={getEmplacementOptions(newLine.magasinId)}
@@ -1358,10 +1473,12 @@ export default function DetailBonEntreePage() {
                     type="text"
                     value={newLine.commentaire}
                     onChange={(event) =>
-                      updateNewLine({ commentaire: event.target.value })
+                      updateNewLine({
+                        commentaire: event.target.value,
+                      })
                     }
                     placeholder="Commentaire"
-                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                    className={inputClassName}
                   />
                 </Field>
               </div>
@@ -1369,10 +1486,11 @@ export default function DetailBonEntreePage() {
 
             {isArticleSerialise(newLine.articleId) && (
               <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-                <h4 className="text-xl font-black text-[#06475a]">
+                <h4 className="text-base font-black uppercase tracking-[0.18em] text-[#06475a]">
                   Matériels sérialisés
                 </h4>
-                <p className="mt-1 text-sm font-semibold text-slate-500">
+
+                <p className="mt-2 text-sm font-semibold text-slate-500">
                   Pour cet article, la quantité doit correspondre au nombre de
                   matériels saisis.
                 </p>
@@ -1396,7 +1514,7 @@ export default function DetailBonEntreePage() {
                               )
                             }
                             placeholder="Exemple : MAT-GE-001"
-                            className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                            className={inputClassName}
                           />
                         </Field>
 
@@ -1412,7 +1530,7 @@ export default function DetailBonEntreePage() {
                               )
                             }
                             placeholder="Exemple : SN-GE-001"
-                            className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10"
+                            className={inputClassName}
                           />
                         </Field>
                       </div>
@@ -1426,9 +1544,9 @@ export default function DetailBonEntreePage() {
               <button
                 type="button"
                 onClick={handleAddLine}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#06475a] px-5 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#06475a] px-4 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
               >
-                <Save size={18} className={addingLine ? 'animate-pulse' : ''} />
+                <Save size={17} className={addingLine ? 'animate-pulse' : ''} />
                 Ajouter la ligne
               </button>
             </div>
@@ -1438,6 +1556,9 @@ export default function DetailBonEntreePage() {
     </main>
   );
 }
+
+const inputClassName =
+  'h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10';
 
 function SummaryCard({
   icon,
@@ -1449,15 +1570,16 @@ function SummaryCard({
   value: string;
 }) {
   return (
-    <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-5">
+    <div className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4">
       <div className="flex items-center gap-3">
         <div className="text-[#06475a]">{icon}</div>
-        <p className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">
+
+        <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">
           {label}
         </p>
       </div>
 
-      <p className="mt-3 text-[22px] font-black text-slate-950">{value}</p>
+      <p className="mt-3 text-xl font-black text-slate-950">{value}</p>
     </div>
   );
 }
@@ -1472,14 +1594,17 @@ function SectionTitle({
   return (
     <div>
       <div className="flex items-center gap-3">
-        <span className="h-3 w-3 rounded-full bg-[#0c5f75]" />
-        <h2 className="text-[28px] font-black tracking-tight text-slate-950">
+        <span className="h-2.5 w-2.5 rounded-full bg-[#06475a]" />
+
+        <h2 className="text-base font-black uppercase tracking-[0.18em] text-slate-500">
           {title}
         </h2>
       </div>
 
       {subtitle && (
-        <p className="mt-2 text-sm font-semibold text-slate-500">{subtitle}</p>
+        <p className="mt-2 text-sm font-semibold text-slate-500">
+          {subtitle}
+        </p>
       )}
     </div>
   );
@@ -1494,9 +1619,10 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-xs font-black uppercase tracking-[0.25em] text-slate-400">
+      <span className="mb-2 block text-xs font-black uppercase tracking-[0.22em] text-slate-400">
         {label}
       </span>
+
       {children}
     </label>
   );

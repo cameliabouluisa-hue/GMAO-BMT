@@ -1,3 +1,5 @@
+'use client';
+
 import Link from 'next/link';
 import type { ElementType } from 'react';
 import {
@@ -16,6 +18,7 @@ import {
   Warehouse,
   Wrench,
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 type Kpi = {
   label: string;
@@ -185,6 +188,8 @@ const activities: ActivityItem[] = [
 ];
 
 export default function DashboardPage() {
+  const { user } = useAuth();
+
   return (
     <div className="mx-auto w-full max-w-[1450px] px-4 py-6 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-6">
@@ -200,7 +205,7 @@ export default function DashboardPage() {
               </p>
 
               <h1 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                Bienvenue, Admin
+                Bienvenue, {user?.fullName || 'Utilisateur'}
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm leading-6 text-cyan-50/80 sm:text-base">
