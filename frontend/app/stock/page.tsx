@@ -1,441 +1,308 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Archive,
-  Boxes,
-  Clock3,
-  Download,
-  History,
-  PackagePlus,
-  RefreshCw,
+  CheckCircle2,
+  FileText,
+  Layers,
+  PackageMinus,
+  Plus,
+  RefreshCcw,
+  RotateCcw,
   Search,
-  ShoppingCart,
 } from 'lucide-react';
 
-import {
-  getMouvementsStock,
-  getStockActuel,
-} from '@/features/stock-entrees/services/stock.service';
+import { Select } from '@/components/select';
+import { getStockSorties } from '@/features/stock-sorties/services/stock-sortie.service';
+import { StockSortieListOptionB } from '@/features/stock-sorties/components/StockSortieListOptionB';
 
 import type {
-  MouvementStock,
-  StockArticleMagasin,
-} from '@/features/stock-entrees/types/stock';
+  StockSortie,
+  StockSortieLigne,
+} from '@/features/stock-sorties/types/stock-sortie';
 
-function toNumber(value: number | string | null | undefined) {
-  return Number(value ?? 0);
+type StatutFilter = 'all' | 'VALIDEE' | 'BROUILLON' | 'ANNULEE';
+
+function getLignes(sortie: StockSortie): StockSortieLigne[] {
+  return sortie.lignes ?? sortie.sortie_stock_ligne ?? [];
 }
 
-function getArticleLabel(stock: StockArticleMagasin) {
-  const reference = stock.article?.reference;
-  const designation = stock.article?.designation;
-
-  if (reference && designation) return `${reference} — ${designation}`;
-  if (reference) return reference;
-  if (designation) return designation;
-
-  return `Article #${stock.idArticle}`;
+function getTotalQuantite(sortie: StockSortie): number {
+  return getLignes(sortie).reduce<number>(
+    (total, ligne) => total + Number(ligne.quantite ?? 0),
+    0,
+  );
 }
 
-function getMagasinLabel(stock: StockArticleMagasin) {
-  const code = stock.magasin?.code;
-  const libelle = stock.magasin?.libelle;
+function getSearchText(sortie: StockSortie): string {
+  const lignes = getLignes(sortie);
 
-  if (code && libelle) return `${code} — ${libelle}`;
-  if (code) return code;
-  if (libelle) return libelle;
+  const articles = lignes
+    .map((ligne) => {
+      return [
+        ligne.article?.reference,
+        ligne.article?.designation,
+        ligne.article?.libelle,
+        ligne.idArticle ? `Article ${ligne.idArticle}` : '',
+      ].join(' ');
+    })
+    .join(' ');
 
-  return `Magasin #${stock.idMagasin}`;
+  const magasins = lignes
+    .map((ligne) => {
+      return [
+        ligne.magasin?.code,
+        ligne.magasin?.libelle,
+        ligne.idMagasin ? `Magasin ${ligne.idMagasin}` : '',
+      ].join(' ');
+    })
+    .join(' ');
+
+  return [
+    sortie.numero,
+    sortie.statut,
+    sortie.idSortieStock,
+    sortie.commentaire,
+    articles,
+    magasins,
+  ]
+    .join(' ')
+    .toLowerCase();
 }
 
-export default function StockPage() {
+export default function StockSortiesPage() {
   const router = useRouter();
 
-  const [stocks, setStocks] = useState<StockArticleMagasin[]>([]);
-  const [mouvements, setMouvements] = useState<MouvementStock[]>([]);
-  const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [sorties, setSorties] = useState<StockSortie[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState('');
 
-  async function loadData() {
+  const [search, setSearch] = useState('');
+  const [statut, setStatut] = useState<StatutFilter>('all');
+
+  const loadSorties = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
 
-      const [stockResult, mouvementsResult] = await Promise.all([
-        getStockActuel(),
-        getMouvementsStock(),
-      ]);
-
-      setStocks(stockResult);
-      setMouvements(mouvementsResult);
+      const data = await getStockSorties();
+      setSorties(data);
     } catch (err) {
-      console.error(err);
-      setError('Erreur lors du chargement du stock.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Erreur lors du chargement des bons de sortie.',
+      );
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    loadData();
   }, []);
 
-  const filteredStocks = useMemo(() => {
-    const value = search.trim().toLowerCase();
+  useEffect(() => {
+    loadSorties();
+  }, [loadSorties]);
 
-    if (!value) return stocks;
+  const filteredSorties = useMemo(() => {
+    const q = search.trim().toLowerCase();
 
-    return stocks.filter((stock) => {
-      const article = getArticleLabel(stock).toLowerCase();
-      const magasin = getMagasinLabel(stock).toLowerCase();
+    return sorties.filter((sortie) => {
+      const matchesSearch = !q || getSearchText(sortie).includes(q);
 
-      return article.includes(value) || magasin.includes(value);
+      const matchesStatut =
+        statut === 'all' || String(sortie.statut) === statut;
+
+      return matchesSearch && matchesStatut;
     });
-  }, [stocks, search]);
+  }, [sorties, search, statut]);
 
-  const totalArticles = useMemo(() => {
-    return new Set(stocks.map((stock) => stock.idArticle)).size;
-  }, [stocks]);
+  const stats = useMemo(() => {
+    return {
+      total: sorties.length,
+      validees: sorties.filter((sortie) => sortie.statut === 'VALIDEE').length,
+      lignes: sorties.reduce(
+        (total, sortie) => total + getLignes(sortie).length,
+        0,
+      ),
+      quantite: sorties.reduce(
+        (total, sortie) => total + getTotalQuantite(sortie),
+        0,
+      ),
+    };
+  }, [sorties]);
 
-  const totalQuantite = useMemo(() => {
-    return stocks.reduce(
-      (total, stock) => total + toNumber(stock.quantitePhysique),
-      0,
-    );
-  }, [stocks]);
-
-  const totalMagasins = useMemo(() => {
-    return new Set(stocks.map((stock) => stock.idMagasin)).size;
-  }, [stocks]);
-
-  const totalMouvements = mouvements.length;
-
-  const menuItems = [
-    {
-      title: 'Entrées stock',
-      description: 'Consulter les bons d’entrée stock.',
-      icon: Download,
-      href: '/stock/entrees',
-      bg: 'bg-emerald-50',
-      text: 'text-emerald-700',
-    },
-    {
-      title: 'Nouvelle entrée',
-      description: 'Réceptionner des articles en magasin.',
-      icon: PackagePlus,
-      href: '/stock/entrees/nouvelle',
-      bg: 'bg-blue-50',
-      text: 'text-blue-700',
-    },
-    {
-      title: 'Mouvements',
-      description: 'Voir l’historique des mouvements stock.',
-      icon: History,
-      href: '/stock/mouvements',
-      bg: 'bg-slate-100',
-      text: 'text-slate-700',
-    },
-    {
-      title: 'Sorties stock',
-      description: 'Préparer les sorties du magasin.',
-      icon: Archive,
-      href: '/stock/sorties/nouvelle',
-      bg: 'bg-red-50',
-      text: 'text-red-700',
-    },
-  ];
-
-  const cards = [
-    {
-      label: 'Articles',
-      value: totalArticles,
-      icon: Boxes,
-      bg: 'bg-blue-50',
-      text: 'text-blue-700',
-    },
-    {
-      label: 'Quantité',
-      value: totalQuantite,
-      icon: Archive,
-      bg: 'bg-emerald-50',
-      text: 'text-emerald-700',
-    },
-    {
-      label: 'Magasins',
-      value: totalMagasins,
-      icon: ShoppingCart,
-      bg: 'bg-orange-50',
-      text: 'text-orange-700',
-    },
-    {
-      label: 'Mouvements',
-      value: totalMouvements,
-      icon: Clock3,
-      bg: 'bg-violet-50',
-      text: 'text-violet-700',
-    },
-  ];
+  function resetFilters() {
+    setSearch('');
+    setStatut('all');
+  }
 
   return (
-    <div className="min-w-0 bg-slate-50">
-      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <div className="flex flex-col gap-5">
-          {/* Header */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Module stock
-                </p>
+    <main className="min-h-[calc(100vh-96px)] bg-[#f5f7fb] px-5 py-6">
+      <section className="mx-auto max-w-[1450px] space-y-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl font-black tracking-tight text-slate-950">
+              Sorties stock
+            </h1>
 
-                <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-                  Stock actuel
-                </h1>
+            <p className="mt-1 text-base font-semibold text-slate-500">
+              Consultez les bons de sortie, leurs lignes d’articles et les
+              mouvements générés.  camii
+            </p>
+          </div>
 
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
-                  Consultez les quantités disponibles par article et par magasin.
-                </p>
-              </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={loadSorties}
+              disabled={loading}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCcw
+                size={18}
+                className={loading ? 'animate-spin' : ''}
+              />
+              Actualiser
+            </button>
 
-              <div className="grid w-full gap-3 sm:grid-cols-3 xl:w-auto xl:min-w-[460px]">
-                <button
-                  type="button"
-                  onClick={loadData}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  <RefreshCw
-                    size={18}
-                    className={loading ? 'animate-spin' : ''}
-                  />
-                  Actualiser
-                </button>
+            <button
+              type="button"
+              onClick={() => router.push('/stock/sorties/nouvelle')}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#06475a] px-5 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
+            >
+              <Plus size={18} />
+              Nouvelle sortie
+            </button>
+          </div>
+        </div>
 
-                <button
-                  type="button"
-                  onClick={() => router.push('/stock/mouvements')}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  <History size={18} />
-                  Mouvements
-                </button>
+        {error && (
+          <div className="rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-black text-red-700">
+            {error}
+          </div>
+        )}
 
-                <button
-                  type="button"
-                  onClick={() => router.push('/stock/entrees/nouvelle')}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0f3d56] px-4 text-sm font-semibold text-white transition hover:bg-[#0c3248]"
-                >
-                  <PackagePlus size={18} />
-                  Nouvelle entrée
-                </button>
-              </div>
-            </div>
-          </section>
+        <div className="grid gap-3 md:grid-cols-4">
+          <MiniStat
+            icon={<FileText size={18} />}
+            label="Total"
+            value={stats.total}
+            tone="blue"
+          />
 
-          {/* Error */}
-          {error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-              {error}
-            </div>
-          )}
+          <MiniStat
+            icon={<CheckCircle2 size={18} />}
+            label="Validées"
+            value={stats.validees}
+            tone="green"
+          />
 
-          {/* Stat cards */}
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {cards.map((card) => {
-              const Icon = card.icon;
+          <MiniStat
+            icon={<Layers size={18} />}
+            label="Lignes"
+            value={stats.lignes}
+            tone="purple"
+          />
 
-              return (
-                <div
-                  key={card.label}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                >
-                  <div className="flex items-center gap-4">
-                    <div
-                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${card.bg} ${card.text}`}
-                    >
-                      <Icon size={22} />
-                    </div>
+          <MiniStat
+            icon={<PackageMinus size={18} />}
+            label="Quantité"
+            value={stats.quantite}
+            tone="red"
+          />
+        </div>
 
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                        {card.label}
-                      </p>
-                      <p className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">
-                        {card.value}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </section>
+        <div className="rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative w-full lg:flex-1">
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Rechercher par numéro, article ou magasin..."
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pl-10 text-sm font-semibold text-slate-950 outline-none transition placeholder:text-slate-400 hover:bg-white focus:border-[#06475a] focus:bg-white focus:ring-4 focus:ring-[#06475a]/10"
+              />
 
-          {/* Quick menu */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="mb-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Accès rapide
-              </p>
-
-              <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-                Menu du module stock
-              </h2>
+              <Search
+                size={18}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+              />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {menuItems.map((item) => {
-                const Icon = item.icon;
-
-                return (
-                  <button
-                    key={item.title}
-                    type="button"
-                    onClick={() => router.push(item.href)}
-                    className="group flex min-h-[180px] flex-col rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-md"
-                  >
-                    <div
-                      className={`flex h-11 w-full items-center justify-center rounded-xl ${item.bg} ${item.text}`}
-                    >
-                      <Icon size={22} />
-                    </div>
-
-                    <h3 className="mt-5 text-xl font-semibold text-slate-900">
-                      {item.title}
-                    </h3>
-
-                    <p className="mt-2 text-sm leading-6 text-slate-500">
-                      {item.description}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          {/* Table section */}
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-4 border-b border-slate-200 p-5 sm:p-6 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-start gap-3">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-                  <Boxes size={22} />
-                </div>
-
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-                    Quantités par magasin
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {filteredStocks.length} ligne(s) de stock affichée(s)
-                  </p>
-                </div>
-              </div>
-
-              <div className="relative w-full lg:max-w-md">
-                <Search
-                  size={18}
-                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Rechercher article ou magasin..."
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#0f3d56] focus:bg-white focus:ring-4 focus:ring-[#0f3d56]/10"
+            <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
+              <div className="w-full sm:w-[240px]">
+                <Select
+                  value={statut}
+                  onValueChange={(value) => setStatut(value as StatutFilter)}
+                  items={[
+                    { label: 'Tous les statuts', value: 'all' },
+                    { label: 'Validées', value: 'VALIDEE' },
+                    { label: 'Brouillons', value: 'BROUILLON' },
+                    { label: 'Annulées', value: 'ANNULEE' },
+                  ]}
                 />
               </div>
+
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-black text-slate-700 transition hover:bg-white sm:w-[170px]"
+              >
+                <RotateCcw size={17} />
+                Réinitialiser
+              </button>
             </div>
+          </div>
+        </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 text-left">
-                    <th className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Article
-                    </th>
-                    <th className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Magasin
-                    </th>
-                    <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Quantité
-                    </th>
-                    <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Réservée
-                    </th>
-                    <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Disponible
-                    </th>
-                  </tr>
-                </thead>
+        <StockSortieListOptionB
+          sorties={filteredSorties}
+          total={sorties.length}
+          loading={loading}
+          onView={(id) => router.push(`/stock/sorties/${id}`)}
+        />
+      </section>
+    </main>
+  );
+}
 
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className="px-6 py-10 text-center text-sm font-medium text-slate-500"
-                      >
-                        Chargement du stock...
-                      </td>
-                    </tr>
-                  ) : filteredStocks.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className="px-6 py-10 text-center text-sm font-medium text-slate-500"
-                      >
-                        Aucun stock trouvé.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredStocks.map((stock) => (
-                      <tr
-                        key={stock.idStock}
-                        className="border-t border-slate-100 transition hover:bg-slate-50"
-                      >
-                        <td className="px-6 py-4 align-middle">
-                          <p className="text-sm font-semibold text-slate-900">
-                            {getArticleLabel(stock)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-400">
-                            ID article : {stock.idArticle}
-                          </p>
-                        </td>
+function MiniStat({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  tone: 'blue' | 'green' | 'purple' | 'red';
+}) {
+  const tones = {
+    blue: 'bg-blue-50 text-blue-600',
+    green: 'bg-emerald-50 text-emerald-600',
+    purple: 'bg-violet-50 text-violet-600',
+    red: 'bg-red-50 text-red-600',
+  };
 
-                        <td className="px-6 py-4 align-middle">
-                          <p className="text-sm font-medium text-slate-700">
-                            {getMagasinLabel(stock)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-400">
-                            ID magasin : {stock.idMagasin}
-                          </p>
-                        </td>
+  return (
+    <div className="rounded-[22px] border border-slate-200 bg-white px-5 py-4 shadow-sm">
+      <div className="flex items-center gap-4">
+        <div
+          className={[
+            'flex h-12 w-12 items-center justify-center rounded-2xl',
+            tones[tone],
+          ].join(' ')}
+        >
+          {icon}
+        </div>
 
-                        <td className="px-6 py-4 text-center align-middle">
-                          <span className="inline-flex min-w-[44px] items-center justify-center rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700">
-                            {toNumber(stock.quantitePhysique)}
-                          </span>
-                        </td>
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">
+            {label}
+          </p>
 
-                        <td className="px-6 py-4 text-center align-middle">
-                          <span className="inline-flex min-w-[44px] items-center justify-center rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-700">
-                            {toNumber(stock.quantiteReservee)}
-                          </span>
-                        </td>
-
-                        <td className="px-6 py-4 text-center align-middle">
-                          <span className="inline-flex min-w-[44px] items-center justify-center rounded-lg bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700">
-                            {toNumber(stock.quantiteDisponible)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <p className="mt-1 text-3xl font-black tracking-tight text-slate-950">
+            {value}
+          </p>
         </div>
       </div>
     </div>

@@ -1,1140 +1,1567 @@
 'use client';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import { useEffect, useMemo, useState } from 'react';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import autoTable from 'jspdf-autotable';
+import jsPDF from 'jspdf';
 import {
   ArrowLeft,
   Boxes,
   CalendarDays,
-  FileText,
-   Download,
-  Plus,
+  Download,
+  Layers3,
+  PackageMinus,
   RefreshCcw,
   Save,
   Trash2,
+  Warehouse,
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001';
+import { Select } from '@/components/select';
 
-type Article = {
-  idArticle: number;
-  reference?: string | null;
-  designation?: string | null;
-  libelle?: string | null;
-  serialise?: boolean | null;
-};
+import { getArticles } from '@/features/articles/services/article.service';
+import { getMagasins } from '@/features/articles/services/article-referentiel.service';
+import type { Article, Magasin } from '@/features/articles/types/article';
 
-type Magasin = {
-  idMagasin: number;
+import { getMateriels } from '@/features/materiels/services/materiel.service';
+import type { Materiel } from '@/features/materiels/types/materiel';
+
+import {
+  addStockSortieLigne,
+  deleteStockSortieLigne,
+  getStockSortie,
+  updateStockSortie,
+  updateStockSortieLigne,
+} from '@/features/stock-sorties/services/stock-sortie.service';
+
+import type {
+  LigneSortieStockCrudDto,
+  StockSortie,
+  StockSortieLigne,
+  UpdateLigneSortieStockDto,
+} from '@/features/stock-sorties/types/stock-sortie';
+
+type EmplacementMagasin = {
+  idEmplacement: number;
   code?: string | null;
   libelle?: string | null;
+  actif?: boolean | null;
 };
 
-type LigneSortie = {
-  idLigneSortieStock: number;
-  idSortieStock: number;
-  idArticle: number;
-  idMagasin: number;
-  quantite: number | string;
-  prixUnitaire?: number | string | null;
-  commentaire?: string | null;
-  article?: Article | null;
-  magasin?: Magasin | null;
-};
-
-type SortieStock = {
-  idSortieStock: number;
-  numero: string;
-  dateSortie: string;
-  commentaire?: string | null;
-  statut: string;
-  lignes?: LigneSortie[];
-  sortie_stock_ligne?: LigneSortie[];
-};
-
-type StockDisponible = {
-  idStock: number;
-  idArticle: number;
-  idMagasin: number;
-  quantitePhysique: number | string;
-  quantiteReservee: number | string;
-  quantiteDisponible: number | string;
-  article?: Article | null;
-  magasin?: Magasin | null;
-};
-
-type LigneEdit = {
+type EditableLine = {
+  articleId: string;
+  magasinId: string;
+  emplacementId: string;
+  materielId: string;
   quantite: string;
   prixUnitaire: string;
   commentaire: string;
 };
 
-type NewLine = {
-  stockKey: string;
-  quantite: string;
-  prixUnitaire: string;
-  commentaire: string;
-};
+const API_BASE_URL = 'http://localhost:3001';
 
-function toNumber(value: number | string | null | undefined) {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
+async function getEmplacementsByMagasin(
+  idMagasin: number,
+): Promise<EmplacementMagasin[]> {
+  const res = await fetch(`${API_BASE_URL}/magasins/${idMagasin}/emplacements`, {
+    cache: 'no-store',
+  });
 
-function formatDate(value?: string | null) {
-  if (!value) return '-';
+  if (!res.ok) {
+    return [];
+  }
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-
-  return date.toLocaleDateString('fr-FR');
+  return res.json();
 }
 
 function toInputDate(value?: string | null) {
   if (!value) return '';
 
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
 
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-
-  return `${year}-${month}-${day}`;
-}
-
-function getLignes(sortie: SortieStock | null) {
-  if (!sortie) return [];
-
-  return sortie.lignes ?? sortie.sortie_stock_ligne ?? [];
-}
-
-function getArticleLabel(article?: Article | null) {
-  if (!article) return 'Article';
-
-  return (
-    article.reference ??
-    article.designation ??
-    article.libelle ??
-    `Article #${article.idArticle}`
-  );
-}
-
-function getMagasinLabel(magasin?: Magasin | null) {
-  if (!magasin) return 'Magasin';
-
-  const code = magasin.code ?? `MAG-${magasin.idMagasin}`;
-  const libelle = magasin.libelle ?? '';
-
-  return libelle ? `${code} — ${libelle}` : code;
-}
-
-function getApiError(error: unknown) {
-  if (error instanceof Error) return error.message;
-  return 'Une erreur est survenue.';
-}
-
-async function handleResponse<T>(response: Response, message: string): Promise<T> {
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    if (Array.isArray(data?.message)) {
-      throw new Error(data.message.join(', '));
-    }
-
-    throw new Error(data?.message ?? message);
+  if (Number.isNaN(date.getTime())) {
+    return value.length >= 10 ? value.slice(0, 10) : '';
   }
 
-  return data as T;
+  return date.toISOString().slice(0, 10);
 }
-function formatPdfDate(value?: string | null) {
-  if (!value) return '-';
+
+function formatDate(value?: string | null) {
+  if (!value) return '—';
 
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
+
+  if (Number.isNaN(date.getTime())) return '—';
 
   return date.toLocaleDateString('fr-FR');
 }
 
-function formatPdfMoney(value: number) {
-  return new Intl.NumberFormat('fr-DZ', {
-    style: 'currency',
-    currency: 'DZD',
+function formatMoney(value?: number | string | null) {
+  if (value === null || value === undefined || value === '') return '—';
+
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) return '—';
+
+  return `${amount.toLocaleString('fr-FR', {
     minimumFractionDigits: 2,
-  }).format(value);
+    maximumFractionDigits: 2,
+  })} DA`;
 }
 
-function safePdfText(value: unknown) {
-  if (value === null || value === undefined || value === '') return '-';
-  return String(value);
+function formatMoneyPdf(value?: number | string | null) {
+  if (value === null || value === undefined || value === '') return '—';
+
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) return '—';
+
+  const formatted = amount
+    .toFixed(2)
+    .replace('.', ',')
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
+  return `${formatted} DA`;
 }
-export default function DetailSortieStockPage() {
+
+function cleanText(value?: string | number | null) {
+  if (value === null || value === undefined || value === '') return '—';
+
+  return String(value).replace(/\s+/g, ' ').trim();
+}
+
+function getLignes(sortie: StockSortie): StockSortieLigne[] {
+  return sortie.lignes ?? sortie.sortie_stock_ligne ?? [];
+}
+
+function getStatusLabel(statut?: string | null) {
+  if (statut === 'VALIDEE') return 'Validée';
+  if (statut === 'BROUILLON') return 'Brouillon';
+  if (statut === 'ANNULEE') return 'Annulée';
+
+  return statut || '—';
+}
+
+function getStatusClasses(statut?: string | null) {
+  if (statut === 'VALIDEE') {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  }
+
+  if (statut === 'BROUILLON') {
+    return 'border-amber-200 bg-amber-50 text-amber-700';
+  }
+
+  if (statut === 'ANNULEE') {
+    return 'border-red-200 bg-red-50 text-red-700';
+  }
+
+  return 'border-slate-200 bg-slate-100 text-slate-700';
+}
+
+function buildArticleLabel(article: Partial<Article> | null | undefined) {
+  if (!article) return '—';
+
+  const reference = article.reference || 'ART';
+  const designation = article.designation || 'Sans désignation';
+
+  return `${reference} — ${designation}`;
+}
+
+function buildMagasinLabel(magasin: Partial<Magasin> | null | undefined) {
+  if (!magasin) return '—';
+
+  const code = magasin.code || 'MAG';
+  const libelle = magasin.libelle || 'Sans libellé';
+
+  return `${code} — ${libelle}`;
+}
+
+function makeDraftFromLine(ligne: StockSortieLigne): EditableLine {
+  const quantite = Number(ligne.quantite ?? 0);
+
+  return {
+    articleId: String(ligne.idArticle ?? ''),
+    magasinId: String(ligne.idMagasin ?? ''),
+    emplacementId:
+      ligne.idEmplacement !== null && ligne.idEmplacement !== undefined
+        ? String(ligne.idEmplacement)
+        : 'none',
+    materielId:
+      ligne.idMateriel !== null && ligne.idMateriel !== undefined
+        ? String(ligne.idMateriel)
+        : 'none',
+    quantite: quantite > 0 ? String(quantite) : '1',
+    prixUnitaire:
+      ligne.prixUnitaire !== null && ligne.prixUnitaire !== undefined
+        ? String(Number(ligne.prixUnitaire))
+        : '',
+    commentaire: ligne.commentaire ?? '',
+  };
+}
+
+function getLineTotal(draft: EditableLine) {
+  const quantite = Number(draft.quantite || 0);
+  const prixUnitaire = Number(draft.prixUnitaire || 0);
+
+  return quantite * prixUnitaire;
+}
+
+function getMaterielAny(materiel: Materiel) {
+  return materiel as unknown as Record<string, any>;
+}
+
+function isMaterielLinkedToArticle(materiel: Materiel, article: Article) {
+  const anyMateriel = getMaterielAny(materiel);
+  const anyArticle = article as unknown as Record<string, any>;
+
+  const modele =
+    anyMateriel.modele ||
+    anyMateriel.modeleEquipement ||
+    anyMateriel.modele_equipement;
+
+  const articleFromModele = modele?.article;
+
+  return (
+    anyMateriel.idArticle === article.idArticle ||
+    modele?.idArticle === article.idArticle ||
+    articleFromModele?.idArticle === article.idArticle ||
+    (anyArticle.idModele && anyMateriel.idModele === anyArticle.idModele)
+  );
+}
+
+function getMaterielMagasinId(materiel: Materiel): number | null {
+  const anyMateriel = getMaterielAny(materiel);
+
+  const ligneEntree =
+    anyMateriel.ligneEntreeStock ||
+    anyMateriel.entree_stock_ligne ||
+    anyMateriel.ligne_entree_stock;
+
+  const magasin =
+    anyMateriel.magasin ||
+    ligneEntree?.magasin ||
+    ligneEntree?.magasinSource ||
+    ligneEntree?.magasinDestination;
+
+  return (
+    anyMateriel.idMagasin ??
+    ligneEntree?.idMagasin ??
+    magasin?.idMagasin ??
+    null
+  );
+}
+
+function isMaterielDisponible(materiel: Materiel) {
+  const anyMateriel = getMaterielAny(materiel);
+
+  if (anyMateriel.actif === false) return false;
+
+  const position = anyMateriel.positionActuelle;
+
+  if (!position) return true;
+
+  return position === 'EN_STOCK' || position === 'EN_RESERVE';
+}
+
+function getMaterielLabel(materiel: Materiel) {
+  const anyMateriel = getMaterielAny(materiel);
+
+  const code = anyMateriel.code || `MAT-${anyMateriel.idMateriel}`;
+  const serie = anyMateriel.numeroSerie;
+
+  if (serie) return `${code} — Série : ${serie}`;
+
+  return code;
+}
+
+export default function DetailBonSortiePage() {
   const router = useRouter();
   const params = useParams();
 
-  const sortieId = Number(params?.id);
+  const idSortie = useMemo(() => {
+    const raw = params?.id;
+    const value = Array.isArray(raw) ? raw[0] : raw;
 
-  const [sortie, setSortie] = useState<SortieStock | null>(null);
-  const [stocks, setStocks] = useState<StockDisponible[]>([]);
+    return Number(value);
+  }, [params]);
 
-  const [dateSortie, setDateSortie] = useState('');
-  const [commentaire, setCommentaire] = useState('');
+  const [sortie, setSortie] = useState<StockSortie | null>(null);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [magasins, setMagasins] = useState<Magasin[]>([]);
+  const [materiels, setMateriels] = useState<Materiel[]>([]);
 
-  const [lineEdits, setLineEdits] = useState<Record<number, LigneEdit>>({});
+  const [emplacementsByMagasin, setEmplacementsByMagasin] = useState<
+    Record<number, EmplacementMagasin[]>
+  >({});
 
-  const [newLine, setNewLine] = useState<NewLine>({
-    stockKey: '',
+  const [headerForm, setHeaderForm] = useState({
+    dateSortie: '',
+    commentaire: '',
+  });
+
+  const [lineDrafts, setLineDrafts] = useState<Record<number, EditableLine>>({});
+
+  const [newLine, setNewLine] = useState<EditableLine>({
+    articleId: '',
+    magasinId: '',
+    emplacementId: 'none',
+    materielId: 'none',
     quantite: '1',
     prixUnitaire: '',
     commentaire: '',
   });
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [savingHeader, setSavingHeader] = useState(false);
   const [savingLineId, setSavingLineId] = useState<number | null>(null);
   const [addingLine, setAddingLine] = useState(false);
-  const [deletingLineId, setDeletingLineId] = useState<number | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [deleteCandidateId, setDeleteCandidateId] = useState<number | null>(
+    null,
+  );
   const [error, setError] = useState('');
 
-  const lignes = useMemo(() => getLignes(sortie), [sortie]);
+  const lignes = sortie ? getLignes(sortie) : [];
 
-  const totalQuantite = useMemo(() => {
-    return lignes.reduce((sum, ligne) => sum + toNumber(ligne.quantite), 0);
-  }, [lignes]);
+  const totalLignes = lignes.length;
 
-  const stocksNonSerialises = useMemo(() => {
-    return stocks.filter((stock) => {
-      const disponible = toNumber(stock.quantiteDisponible);
-      const serialise = stock.article?.serialise === true;
-
-      return disponible > 0 && !serialise;
-    });
-  }, [stocks]);
-  function handleExportSortiePdf() {
-  if (!sortie) return;
-
-  const lignes = getLignes(sortie);
-
-  const doc = new jsPDF({
-    orientation: 'portrait',
-    unit: 'mm',
-    format: 'a4',
-  });
-
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-
-  const marginX = 14;
-
-  const totalQuantitePdf = lignes.reduce(
-    (sum, ligne) => sum + toNumber(ligne.quantite),
+  const totalQuantite = lignes.reduce(
+    (sum, ligne) => sum + Number(ligne.quantite ?? 0),
     0,
   );
 
-  const totalMontantPdf = lignes.reduce((sum, ligne) => {
-    const qte = toNumber(ligne.quantite);
-    const prix = toNumber(ligne.prixUnitaire);
-    return sum + qte * prix;
-  }, 0);
+  const totalMateriels = lignes.filter((ligne) => Boolean(ligne.idMateriel))
+    .length;
 
-  // Header moderne
-  doc.setFillColor(7, 37, 56);
-  doc.rect(0, 0, pageWidth, 32, 'F');
+  const articleOptions = articles.map((article) => ({
+    value: String(article.idArticle),
+    label: buildArticleLabel(article),
+  }));
 
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.text('GMAO BMT', marginX, 14);
+  const magasinOptions = magasins.map((magasin) => ({
+    value: String(magasin.idMagasin),
+    label: buildMagasinLabel(magasin),
+  }));
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text('Port - Maintenance - Equipements - Stock', marginX, 21);
+  const ensureEmplacements = useCallback(
+    async (idMagasin?: number | null) => {
+      if (!idMagasin || Number.isNaN(idMagasin)) return;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.text('BON DE SORTIE STOCK', pageWidth - marginX, 14, {
-    align: 'right',
-  });
+      if (emplacementsByMagasin[idMagasin]) return;
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text(`Numero : ${safePdfText(sortie.numero)}`, pageWidth - marginX, 21, {
-    align: 'right',
-  });
+      const data = await getEmplacementsByMagasin(idMagasin);
 
-  // Bloc infos
-  const infoY = 42;
-
-  doc.setTextColor(15, 23, 42);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.text('Informations du bon', marginX, infoY);
-
-  doc.setDrawColor(226, 232, 240);
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(marginX, infoY + 5, pageWidth - marginX * 2, 34, 3, 3, 'FD');
-
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Numero', marginX + 5, infoY + 15);
-  doc.text('Date de sortie', marginX + 55, infoY + 15);
-  doc.text('Statut', marginX + 105, infoY + 15);
-
-  doc.setFont('helvetica', 'normal');
-  doc.text(safePdfText(sortie.numero), marginX + 5, infoY + 23);
-  doc.text(formatPdfDate(sortie.dateSortie), marginX + 55, infoY + 23);
-  doc.text(safePdfText(sortie.statut), marginX + 105, infoY + 23);
-
-  doc.setFont('helvetica', 'bold');
-  doc.text('Commentaire', marginX + 5, infoY + 31);
-
-  doc.setFont('helvetica', 'normal');
-  const commentaireText = sortie.commentaire?.trim() || '-';
-  doc.text(commentaireText.slice(0, 110), marginX + 35, infoY + 31);
-
-  // Résumé
-  const resumeY = infoY + 50;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.text('Résumé', marginX, resumeY);
-
-  const cardWidth = (pageWidth - marginX * 2 - 8) / 3;
-  const cardY = resumeY + 5;
-
-  function drawCard(x: number, title: string, value: string) {
-    doc.setDrawColor(226, 232, 240);
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(x, cardY, cardWidth, 22, 3, 3, 'FD');
-
-    doc.setTextColor(100, 116, 139);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text(title, x + 5, cardY + 8);
-
-    doc.setTextColor(15, 23, 42);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text(value, x + 5, cardY + 17);
-  }
-
-  drawCard(marginX, 'Nombre de lignes', String(lignes.length));
-  drawCard(marginX + cardWidth + 4, 'Quantité totale', String(totalQuantitePdf));
-  drawCard(
-    marginX + (cardWidth + 4) * 2,
-    'Montant total',
-    formatPdfMoney(totalMontantPdf),
+      setEmplacementsByMagasin((prev) => ({
+        ...prev,
+        [idMagasin]: data,
+      }));
+    },
+    [emplacementsByMagasin],
   );
 
-  // Tableau lignes
-  const tableY = cardY + 34;
+  const loadData = useCallback(
+    async (silent = false) => {
+      if (!Number.isFinite(idSortie) || idSortie <= 0) {
+        setError('Identifiant du bon de sortie invalide.');
+        setLoading(false);
+        return;
+      }
 
-  const rows = lignes.map((ligne, index) => {
-    const qte = toNumber(ligne.quantite);
-    const prix = toNumber(ligne.prixUnitaire);
-    const total = qte * prix;
+      try {
+        if (silent) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
 
-    return [
-      String(index + 1),
-      getArticleLabel(ligne.article),
-      getMagasinLabel(ligne.magasin),
-      String(qte),
-      prix > 0 ? formatPdfMoney(prix) : '-',
-      prix > 0 ? formatPdfMoney(total) : '-',
-      ligne.commentaire?.trim() || '-',
-    ];
-  });
+        setError('');
 
-  autoTable(doc, {
-    startY: tableY,
-    head: [
-      [
-        '#',
-        'Article',
-        'Magasin',
-        'Qte',
-        'Prix unitaire',
-        'Total',
-        'Commentaire',
-      ],
-    ],
-    body: rows,
-    theme: 'grid',
-    styles: {
-      font: 'helvetica',
-      fontSize: 8,
-      cellPadding: 3,
-      textColor: [15, 23, 42],
-      lineColor: [226, 232, 240],
-      lineWidth: 0.2,
+        const [sortieData, articlesData, magasinsData, materielsData] =
+          await Promise.all([
+            getStockSortie(idSortie),
+            getArticles(),
+            getMagasins(),
+            getMateriels(),
+          ]);
+
+        const sortieLignes = getLignes(sortieData);
+
+        setSortie(sortieData);
+        setArticles(articlesData);
+        setMagasins(magasinsData);
+        setMateriels(materielsData);
+
+        setHeaderForm({
+          dateSortie: toInputDate(sortieData.dateSortie),
+          commentaire: sortieData.commentaire ?? '',
+        });
+
+        const drafts: Record<number, EditableLine> = {};
+        const idsMagasins = new Set<number>();
+
+        for (const ligne of sortieLignes) {
+          drafts[ligne.idLigneSortieStock] = makeDraftFromLine(ligne);
+
+          if (ligne.idMagasin) {
+            idsMagasins.add(ligne.idMagasin);
+          }
+        }
+
+        setLineDrafts(drafts);
+
+        const emplacementsEntries = await Promise.all(
+          Array.from(idsMagasins).map(async (idMagasin) => {
+            const data = await getEmplacementsByMagasin(idMagasin);
+            return [idMagasin, data] as const;
+          }),
+        );
+
+        setEmplacementsByMagasin((prev) => ({
+          ...prev,
+          ...Object.fromEntries(emplacementsEntries),
+        }));
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Erreur lors du chargement du bon de sortie.',
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
     },
-    headStyles: {
-      fillColor: [7, 37, 56],
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-      halign: 'center',
-    },
-    alternateRowStyles: {
-      fillColor: [248, 250, 252],
-    },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 10 },
-      1: { cellWidth: 34 },
-      2: { cellWidth: 38 },
-      3: { halign: 'center', cellWidth: 14 },
-      4: { halign: 'right', cellWidth: 25 },
-      5: { halign: 'right', cellWidth: 25 },
-      6: { cellWidth: 34 },
-    },
-    margin: {
-      left: marginX,
-      right: marginX,
-    },
-    didDrawPage: () => {
-      const pageNumber = doc.getNumberOfPages();
-
-      doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
-      doc.text(
-        `Généré le ${new Date().toLocaleString('fr-FR')}`,
-        marginX,
-        pageHeight - 10,
-      );
-
-      doc.text(`Page ${pageNumber}`, pageWidth - marginX, pageHeight - 10, {
-        align: 'right',
-      });
-    },
-  });
-
-  const finalY = (doc as any).lastAutoTable?.finalY ?? tableY + 20;
-
-  // Total final
-  const totalBoxY = finalY + 8;
-
-  if (totalBoxY < pageHeight - 35) {
-    doc.setDrawColor(226, 232, 240);
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(pageWidth - 88, totalBoxY, 74, 25, 3, 3, 'FD');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.setFontSize(10);
-    doc.text('TOTAL GENERAL', pageWidth - 83, totalBoxY + 9);
-
-    doc.setFontSize(12);
-    doc.text(formatPdfMoney(totalMontantPdf), pageWidth - 19, totalBoxY + 19, {
-      align: 'right',
-    });
-  }
-
-  const fileName = `Bon-sortie-${sortie.numero || sortie.idSortieStock}.pdf`;
-  doc.save(fileName);
-}
-
-  async function loadData() {
-    if (!sortieId || Number.isNaN(sortieId)) {
-      setError('Identifiant du bon de sortie invalide.');
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError('');
-
-      const [sortieResponse, stocksResponse] = await Promise.all([
-        fetch(`${API_URL}/stock/sorties/${sortieId}`, {
-          cache: 'no-store',
-        }),
-        fetch(`${API_URL}/stock`, {
-          cache: 'no-store',
-        }),
-      ]);
-
-      const sortieData = await handleResponse<SortieStock>(
-        sortieResponse,
-        'Erreur lors du chargement du bon de sortie.',
-      );
-
-      const stockData = await handleResponse<StockDisponible[]>(
-        stocksResponse,
-        'Erreur lors du chargement du stock disponible.',
-      );
-
-      setSortie(sortieData);
-      setStocks(stockData);
-
-      setDateSortie(toInputDate(sortieData.dateSortie));
-      setCommentaire(sortieData.commentaire ?? '');
-
-      const initialEdits: Record<number, LigneEdit> = {};
-
-      getLignes(sortieData).forEach((ligne) => {
-        initialEdits[ligne.idLigneSortieStock] = {
-          quantite: String(toNumber(ligne.quantite)),
-          prixUnitaire:
-            ligne.prixUnitaire === null || ligne.prixUnitaire === undefined
-              ? ''
-              : String(ligne.prixUnitaire),
-          commentaire: ligne.commentaire ?? '',
-        };
-      });
-
-      setLineEdits(initialEdits);
-    } catch (err) {
-      setError(getApiError(err));
-    } finally {
-      setLoading(false);
-    }
-  }
+    [idSortie],
+  );
 
   useEffect(() => {
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortieId]);
+  }, [loadData]);
 
-  async function handleUpdateHeader() {
+  function getArticleById(id?: string) {
+    if (!id) return null;
+
+    return articles.find((article) => article.idArticle === Number(id)) ?? null;
+  }
+
+  function isArticleSerialise(id?: string) {
+    const article = getArticleById(id);
+
+    return Boolean(article?.serialise);
+  }
+
+  function getEmplacementOptions(magasinId?: string) {
+    const idMagasin = Number(magasinId);
+    const items = emplacementsByMagasin[idMagasin] ?? [];
+
+    return [
+      { value: 'none', label: 'Aucun emplacement' },
+      ...items
+        .filter((item) => item.actif !== false)
+        .map((item) => ({
+          value: String(item.idEmplacement),
+          label:
+            item.code && item.libelle
+              ? `${item.code} — ${item.libelle}`
+              : item.code ||
+                item.libelle ||
+                `Emplacement #${item.idEmplacement}`,
+        })),
+    ];
+  }
+
+  function getMaterielOptions(articleId?: string, magasinId?: string) {
+    const article = getArticleById(articleId);
+    const idMagasin = Number(magasinId);
+
+    if (!article) {
+      return [{ value: 'none', label: 'Aucun matériel' }];
+    }
+
+    const items = materiels.filter((materiel) => {
+      const linked = isMaterielLinkedToArticle(materiel, article);
+      const available = isMaterielDisponible(materiel);
+      const materielMagasinId = getMaterielMagasinId(materiel);
+
+      const matchesMagasin =
+        !idMagasin || !materielMagasinId || materielMagasinId === idMagasin;
+
+      return linked && available && matchesMagasin;
+    });
+
+    return [
+      { value: 'none', label: 'Sélectionner un matériel' },
+      ...items.map((materiel) => ({
+        value: String(getMaterielAny(materiel).idMateriel),
+        label: getMaterielLabel(materiel),
+      })),
+    ];
+  }
+
+  function updateDraftLine(idLigne: number, patch: Partial<EditableLine>) {
+    setLineDrafts((prev) => {
+      const current = prev[idLigne];
+
+      if (!current) return prev;
+
+      const next: EditableLine = {
+        ...current,
+        ...patch,
+      };
+
+      if (patch.magasinId !== undefined) {
+        next.emplacementId = 'none';
+        next.materielId = 'none';
+        ensureEmplacements(Number(patch.magasinId));
+      }
+
+      if (patch.articleId !== undefined) {
+        next.materielId = 'none';
+      }
+
+      if (isArticleSerialise(next.articleId)) {
+        next.quantite = '1';
+      } else {
+        next.materielId = 'none';
+      }
+
+      return {
+        ...prev,
+        [idLigne]: next,
+      };
+    });
+  }
+
+  function updateNewLine(patch: Partial<EditableLine>) {
+    setNewLine((prev) => {
+      const next: EditableLine = {
+        ...prev,
+        ...patch,
+      };
+
+      if (patch.magasinId !== undefined) {
+        next.emplacementId = 'none';
+        next.materielId = 'none';
+        ensureEmplacements(Number(patch.magasinId));
+      }
+
+      if (patch.articleId !== undefined) {
+        next.materielId = 'none';
+      }
+
+      if (isArticleSerialise(next.articleId)) {
+        next.quantite = '1';
+      } else {
+        next.materielId = 'none';
+      }
+
+      return next;
+    });
+  }
+
+  function buildPayloadFromDraft(
+    draft: EditableLine,
+  ): LigneSortieStockCrudDto {
+    const serialise = isArticleSerialise(draft.articleId);
+
+    const payload: LigneSortieStockCrudDto = {
+      idArticle: Number(draft.articleId),
+      idMagasin: Number(draft.magasinId),
+      quantite: serialise ? 1 : Number(draft.quantite),
+      commentaire: draft.commentaire.trim() || undefined,
+    };
+
+    if (draft.emplacementId && draft.emplacementId !== 'none') {
+      payload.idEmplacement = Number(draft.emplacementId);
+    }
+
+    if (serialise && draft.materielId !== 'none') {
+      payload.idMateriel = Number(draft.materielId);
+    }
+
+    if (draft.prixUnitaire !== '') {
+      payload.prixUnitaire = Number(draft.prixUnitaire);
+    }
+
+    return payload;
+  }
+
+  async function handleSaveHeader() {
     if (!sortie) return;
 
     try {
       setSavingHeader(true);
       setError('');
 
-      const response = await fetch(`${API_URL}/stock/sorties/${sortie.idSortieStock}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          dateSortie,
-          commentaire: commentaire.trim() || null,
-        }),
+      await updateStockSortie(sortie.idSortieStock, {
+        dateSortie: headerForm.dateSortie || undefined,
+        commentaire: headerForm.commentaire || undefined,
       });
 
-      const updated = await handleResponse<SortieStock>(
-        response,
-        'Erreur lors de la modification du bon de sortie.',
-      );
-
-      setSortie(updated);
-      setDateSortie(toInputDate(updated.dateSortie));
-      setCommentaire(updated.commentaire ?? '');
-
-      await loadData();
+      await loadData(true);
     } catch (err) {
-      setError(getApiError(err));
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Erreur lors de l'enregistrement du bon.",
+      );
     } finally {
       setSavingHeader(false);
     }
   }
 
-  async function handleUpdateLine(ligne: LigneSortie) {
-    const edit = lineEdits[ligne.idLigneSortieStock];
+  async function handleSaveLine(idLigne: number) {
+    const draft = lineDrafts[idLigne];
 
-    if (!edit) return;
-
-    const quantite = Number(edit.quantite);
-
-    if (!quantite || quantite <= 0) {
-      setError('La quantité doit être supérieure à 0.');
-      return;
-    }
+    if (!draft || !sortie) return;
 
     try {
-      setSavingLineId(ligne.idLigneSortieStock);
+      setSavingLineId(idLigne);
       setError('');
 
-      const body = {
-        quantite,
-        prixUnitaire:
-          edit.prixUnitaire.trim() === ''
-            ? undefined
-            : Number(edit.prixUnitaire),
-        commentaire: edit.commentaire.trim() || null,
-      };
-
-      const response = await fetch(
-        `${API_URL}/stock/sorties/${sortieId}/lignes/${ligne.idLigneSortieStock}`,
-        {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(body),
-        },
+      await updateStockSortieLigne(
+        sortie.idSortieStock,
+        idLigne,
+        buildPayloadFromDraft(draft) as UpdateLigneSortieStockDto,
       );
 
-      await handleResponse<SortieStock>(
-        response,
-        'Erreur lors de la modification de la ligne.',
-      );
-
-      await loadData();
+      await loadData(true);
     } catch (err) {
-      setError(getApiError(err));
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Erreur lors de la modification de la ligne.',
+      );
     } finally {
       setSavingLineId(null);
     }
   }
 
-  async function handleDeleteLine(ligne: LigneSortie) {
-    const confirmed = window.confirm(
-      'Voulez-vous vraiment supprimer cette ligne du bon de sortie ?',
-    );
+  async function handleDeleteLine(idLigne: number) {
+    if (!sortie) return;
 
-    if (!confirmed) return;
+    if (deleteCandidateId !== idLigne) {
+      setDeleteCandidateId(idLigne);
+      return;
+    }
 
     try {
-      setDeletingLineId(ligne.idLigneSortieStock);
       setError('');
+      setDeleteCandidateId(null);
 
-      const response = await fetch(
-        `${API_URL}/stock/sorties/${sortieId}/lignes/${ligne.idLigneSortieStock}`,
-        {
-          method: 'DELETE',
-        },
-      );
-
-      await handleResponse<SortieStock>(
-        response,
-        'Erreur lors de la suppression de la ligne.',
-      );
-
-      await loadData();
+      await deleteStockSortieLigne(sortie.idSortieStock, idLigne);
+      await loadData(true);
     } catch (err) {
-      setError(getApiError(err));
-    } finally {
-      setDeletingLineId(null);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Erreur lors de la suppression de la ligne.',
+      );
     }
   }
 
   async function handleAddLine() {
-    if (!newLine.stockKey) {
-      setError('Veuillez choisir un article disponible.');
-      return;
-    }
-
-    const [idArticleRaw, idMagasinRaw] = newLine.stockKey.split('-');
-
-    const idArticle = Number(idArticleRaw);
-    const idMagasin = Number(idMagasinRaw);
-    const quantite = Number(newLine.quantite);
-
-    if (!idArticle || !idMagasin) {
-      setError('Article ou magasin invalide.');
-      return;
-    }
-
-    if (!quantite || quantite <= 0) {
-      setError('La quantité doit être supérieure à 0.');
-      return;
-    }
+    if (!sortie) return;
 
     try {
       setAddingLine(true);
       setError('');
 
-      const body = {
-        idArticle,
-        idMagasin,
-        quantite,
-        prixUnitaire:
-          newLine.prixUnitaire.trim() === ''
-            ? undefined
-            : Number(newLine.prixUnitaire),
-        commentaire: newLine.commentaire.trim() || null,
-      };
-
-      const response = await fetch(`${API_URL}/stock/sorties/${sortieId}/lignes`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-
-      await handleResponse<SortieStock>(
-        response,
-        'Erreur lors de l’ajout de la ligne.',
+      await addStockSortieLigne(
+        sortie.idSortieStock,
+        buildPayloadFromDraft(newLine),
       );
 
       setNewLine({
-        stockKey: '',
+        articleId: '',
+        magasinId: '',
+        emplacementId: 'none',
+        materielId: 'none',
         quantite: '1',
         prixUnitaire: '',
         commentaire: '',
       });
 
-      await loadData();
+      await loadData(true);
     } catch (err) {
-      setError(getApiError(err));
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Erreur lors de l'ajout de la ligne.",
+      );
     } finally {
       setAddingLine(false);
     }
   }
 
+  async function handleExportPdf() {
+    if (!sortie) return;
+
+    try {
+      setExportingPdf(true);
+
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'pt',
+        format: 'a4',
+      });
+
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      const primary: [number, number, number] = [6, 71, 90];
+      const textDark: [number, number, number] = [15, 23, 42];
+      const textMuted: [number, number, number] = [100, 116, 139];
+      const border: [number, number, number] = [226, 232, 240];
+      const soft: [number, number, number] = [248, 250, 252];
+
+      pdf.setFillColor(...primary);
+      pdf.rect(0, 0, pageWidth, 86, 'F');
+
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(18);
+      pdf.text('GMAO BMT', 36, 34);
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.text('Port · Maintenance · Équipements · Stock', 36, 51);
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(15);
+      pdf.text('BON DE SORTIE STOCK', pageWidth - 36, 34, {
+        align: 'right',
+      });
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.text(
+        `Numéro : ${sortie.numero || `BS-${sortie.idSortieStock}`}`,
+        pageWidth - 36,
+        51,
+        {
+          align: 'right',
+        },
+      );
+
+      let y = 122;
+
+      pdf.setTextColor(...textDark);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(13);
+      pdf.text('Informations du bon', 36, y);
+
+      y += 16;
+
+      pdf.setDrawColor(...border);
+      pdf.setFillColor(...soft);
+      pdf.roundedRect(36, y, pageWidth - 72, 82, 10, 10, 'FD');
+
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...textMuted);
+      pdf.text('Numéro', 54, y + 24);
+      pdf.text('Date sortie', 190, y + 24);
+      pdf.text('Statut', 340, y + 24);
+      pdf.text('Commentaire', 490, y + 24);
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(...textDark);
+      pdf.text(cleanText(sortie.numero), 54, y + 42);
+      pdf.text(formatDate(sortie.dateSortie), 190, y + 42);
+      pdf.text(getStatusLabel(sortie.statut), 340, y + 42);
+      pdf.text(cleanText(sortie.commentaire), 490, y + 42, {
+        maxWidth: pageWidth - 540,
+      });
+
+      y += 125;
+
+      pdf.setTextColor(...textDark);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(13);
+      pdf.text('Lignes du bon de sortie', 36, y);
+
+      y += 16;
+
+      const rows = lignes.map((ligne, index) => {
+        const quantite = Number(ligne.quantite ?? 0);
+        const prixUnitaire = Number(ligne.prixUnitaire ?? 0);
+        const totalLigne = quantite * prixUnitaire;
+
+        const article =
+          ligne.article?.reference && ligne.article?.designation
+            ? `${ligne.article.reference} — ${ligne.article.designation}`
+            : ligne.article?.reference ||
+              ligne.article?.designation ||
+              ligne.article?.libelle ||
+              `Article #${ligne.idArticle}`;
+
+        const magasin =
+          ligne.magasin?.code && ligne.magasin?.libelle
+            ? `${ligne.magasin.code} — ${ligne.magasin.libelle}`
+            : ligne.magasin?.code ||
+              ligne.magasin?.libelle ||
+              `Magasin #${ligne.idMagasin}`;
+
+        const materiel = ligne.materiel
+          ? `${ligne.materiel.code || `MAT-${ligne.materiel.idMateriel}`}${
+              ligne.materiel.numeroSerie
+                ? ` (${ligne.materiel.numeroSerie})`
+                : ''
+            }`
+          : ligne.idMateriel
+            ? `Matériel #${ligne.idMateriel}`
+            : '—';
+
+        return [
+          String(index + 1),
+          cleanText(article),
+          cleanText(magasin),
+          String(quantite),
+          formatMoneyPdf(prixUnitaire),
+          formatMoneyPdf(totalLigne),
+          cleanText(materiel),
+        ];
+      });
+
+      autoTable(pdf, {
+        startY: y,
+        head: [
+          [
+            '#',
+            'Article',
+            'Magasin',
+            'Qté',
+            'Prix unitaire',
+            'Total',
+            'Matériel',
+          ],
+        ],
+        body: rows,
+        theme: 'grid',
+        margin: {
+          left: 36,
+          right: 36,
+        },
+        styles: {
+          font: 'helvetica',
+          fontSize: 7.5,
+          cellPadding: 6,
+          textColor: textDark,
+          lineColor: border,
+          lineWidth: 0.5,
+          overflow: 'linebreak',
+          valign: 'middle',
+        },
+        headStyles: {
+          fillColor: primary,
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center',
+        },
+        alternateRowStyles: {
+          fillColor: soft,
+        },
+        columnStyles: {
+          0: {
+            cellWidth: 26,
+            halign: 'center',
+          },
+          1: {
+            cellWidth: 160,
+          },
+          2: {
+            cellWidth: 190,
+          },
+          3: {
+            cellWidth: 40,
+            halign: 'center',
+          },
+          4: {
+            cellWidth: 120,
+            halign: 'right',
+            overflow: 'hidden',
+          },
+          5: {
+            cellWidth: 120,
+            halign: 'right',
+            overflow: 'hidden',
+            fontStyle: 'bold',
+          },
+          6: {
+            cellWidth: 105,
+          },
+        },
+      });
+
+      const pageCount = pdf.getNumberOfPages();
+
+      for (let page = 1; page <= pageCount; page += 1) {
+        pdf.setPage(page);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8);
+        pdf.setTextColor(...textMuted);
+
+        pdf.text(
+          `Généré le ${new Date().toLocaleString('fr-FR')}`,
+          36,
+          pageHeight - 24,
+        );
+
+        pdf.text(`Page ${page}/${pageCount}`, pageWidth - 36, pageHeight - 24, {
+          align: 'right',
+        });
+      }
+
+      pdf.save(`${sortie.numero || `BS-${sortie.idSortieStock}`}.pdf`);
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f4f7fb] p-6 lg:p-8">
-        <div className="mx-auto max-w-[1500px] space-y-4">
-          {[1, 2, 3].map((item) => (
-            <div
-              key={item}
-              className="h-28 animate-pulse rounded-[28px] border border-slate-200 bg-white shadow-sm"
-            />
-          ))}
-        </div>
+      <main className="min-h-[calc(100vh-96px)] bg-[#f5f7fb] px-5 py-6">
+        <section className="mx-auto max-w-[1280px] rounded-[28px] border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+            <RefreshCcw size={24} className="animate-spin" />
+          </div>
+
+          <p className="mt-4 text-sm font-black text-slate-500">
+            Chargement du bon de sortie...
+          </p>
+        </section>
       </main>
     );
   }
 
   if (!sortie) {
     return (
-      <main className="min-h-screen bg-[#f4f7fb] p-6 lg:p-8">
-        <div className="mx-auto max-w-[1500px] rounded-[28px] border border-red-100 bg-red-50 p-6 text-sm font-bold text-red-700">
-          {error || 'Bon de sortie introuvable.'}
-        </div>
+      <main className="min-h-[calc(100vh-96px)] bg-[#f5f7fb] px-5 py-6">
+        <section className="mx-auto max-w-[1280px] rounded-[28px] border border-red-100 bg-white px-6 py-16 text-center shadow-sm">
+          <p className="text-sm font-black text-red-700">
+            Bon de sortie introuvable.
+          </p>
+        </section>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f7fb] px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-[1500px] space-y-5">
-        <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.35em] text-slate-400">
-                Module stock
-              </p>
-
-              <h1 className="mt-2 text-3xl font-black text-slate-950">
-                Bon de sortie {sortie.numero}
-              </h1>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-700">
-                  {sortie.statut}
-                </span>
-
-                <span className="text-sm font-bold text-slate-500">
-                  ID : {sortie.idSortieStock}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => router.push('/stock/sorties')}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
-              >
-                <ArrowLeft size={18} />
-                Retour
-              </button>
-
-              <button
-                type="button"
-                onClick={loadData}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
-              >
-                <RefreshCcw size={18} />
-                Actualiser
-              </button>
-              <button
-  type="button"
-  onClick={handleExportSortiePdf}
-  disabled={!sortie}
-  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
->
-  <Download className="h-4 w-4" />
-  Exporter PDF
-</button>
-            </div>
-          </div>
-        </section>
+    <main className="min-h-[calc(100vh-96px)] bg-[#f5f7fb] px-5 py-6">
+      <section className="mx-auto max-w-[1280px] space-y-5">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="inline-flex items-center gap-2 text-sm font-black text-slate-500 transition hover:text-[#06475a]"
+        >
+          <ArrowLeft size={18} />
+          Retour
+        </button>
 
         {error && (
-          <div className="rounded-[24px] border border-red-100 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">
+          <div className="rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-black text-red-700">
             {error}
           </div>
         )}
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-            <CalendarDays className="text-slate-400" size={24} />
-            <p className="mt-4 text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-              Date
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950">
-              {formatDate(sortie.dateSortie)}
-            </p>
+        <section className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-sm">
+          <div className="bg-gradient-to-r from-[#0a556b] to-[#0d6f87] px-6 py-6 text-white">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+              <div className="flex items-start gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-white">
+                  <PackageMinus size={28} />
+                </div>
+
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.35em] text-white/70">
+                    Fiche bon de sortie
+                  </p>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <h1 className="text-3xl font-black tracking-tight">
+                      {sortie.numero || `BS-${sortie.idSortieStock}`}
+                    </h1>
+
+                    <span
+                      className={`rounded-full border px-4 py-1.5 text-sm font-black ${getStatusClasses(
+                        sortie.statut,
+                      )}`}
+                    >
+                      {getStatusLabel(sortie.statut)}
+                    </span>
+                  </div>
+
+                  <p className="mt-2 text-sm font-semibold text-white/85">
+                    Bon de sortie #{sortie.idSortieStock} · {totalLignes}{' '}
+                    ligne(s)
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => loadData(true)}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white/15 px-4 text-sm font-black text-white transition hover:bg-white/20"
+                >
+                  <RefreshCcw
+                    size={17}
+                    className={refreshing ? 'animate-spin' : ''}
+                  />
+                  Actualiser
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportPdf}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-black text-[#06475a] shadow-sm transition hover:bg-slate-50"
+                >
+                  <Download
+                    size={17}
+                    className={exportingPdf ? 'animate-pulse' : ''}
+                  />
+                  Exporter PDF
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-            <FileText className="text-blue-500" size={24} />
-            <p className="mt-4 text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-              Lignes
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950">
-              {lignes.length}
-            </p>
+          <div className="grid gap-4 px-6 py-5 md:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard
+              icon={<CalendarDays size={20} />}
+              label="Date"
+              value={formatDate(sortie.dateSortie)}
+            />
+
+            <SummaryCard
+              icon={<Layers3 size={20} />}
+              label="Lignes"
+              value={String(totalLignes)}
+            />
+
+            <SummaryCard
+              icon={<Boxes size={20} />}
+              label="Quantité"
+              value={`- ${totalQuantite}`}
+            />
+
+            <SummaryCard
+              icon={<Warehouse size={20} />}
+              label="Matériels"
+              value={String(totalMateriels)}
+            />
           </div>
 
-          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-            <Boxes className="text-red-500" size={24} />
-            <p className="mt-4 text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-              Quantité sortie
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950">
-              {totalQuantite}
-            </p>
-          </div>
+          <div className="px-6 pb-6">
+            <SectionTitle title="Généralités" />
 
-          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-            <Save className="text-emerald-500" size={24} />
-            <p className="mt-4 text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-              Statut
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950">
-              {sortie.statut}
-            </p>
+            <div className="mt-3 rounded-[26px] border border-slate-200 bg-slate-50/70 p-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Date sortie *">
+                  <input
+                    type="date"
+                    value={headerForm.dateSortie}
+                    onChange={(event) =>
+                      setHeaderForm((prev) => ({
+                        ...prev,
+                        dateSortie: event.target.value,
+                      }))
+                    }
+                    className={inputClassName}
+                  />
+                </Field>
+
+                <Field label="Commentaire général">
+                  <input
+                    type="text"
+                    value={headerForm.commentaire}
+                    onChange={(event) =>
+                      setHeaderForm((prev) => ({
+                        ...prev,
+                        commentaire: event.target.value,
+                      }))
+                    }
+                    placeholder="Commentaire"
+                    className={inputClassName}
+                  />
+                </Field>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSaveHeader}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#06475a] px-4 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
+                >
+                  <Save
+                    size={17}
+                    className={savingHeader ? 'animate-pulse' : ''}
+                  />
+                  Enregistrer
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 
-        <section className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-4 border-b border-slate-100 p-6 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-2xl font-black text-slate-950">
-                Informations du bon
-              </h2>
-              <p className="mt-1 text-sm font-semibold text-slate-500">
-                Vous pouvez modifier la date et le commentaire.
-              </p>
-            </div>
+        <section className="space-y-4">
+          <SectionTitle
+            title="Lignes du bon de sortie"
+            subtitle="Vous pouvez modifier les articles, magasins, emplacements, quantités et matériels sortis."
+          />
 
-            <button
-              type="button"
-              onClick={handleUpdateHeader}
-              disabled={savingHeader}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#0b4a5f] px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-[#07394a] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Save size={18} />
-              {savingHeader ? 'Enregistrement...' : 'Enregistrer'}
-            </button>
-          </div>
+          {lignes.map((ligne, index) => {
+            const draft = lineDrafts[ligne.idLigneSortieStock];
 
-          <div className="grid gap-4 p-6 lg:grid-cols-[360px_1fr]">
-            <div>
-              <label className="mb-2 block text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                Date de sortie
-              </label>
+            if (!draft) return null;
 
-              <input
-                type="date"
-                value={dateSortie}
-                onChange={(e) => setDateSortie(e.target.value)}
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-[#0b4a5f]"
-              />
-            </div>
+            const serialise = isArticleSerialise(draft.articleId);
+            const emplacementOptions = getEmplacementOptions(draft.magasinId);
+            const materielOptions = getMaterielOptions(
+              draft.articleId,
+              draft.magasinId,
+            );
 
-            <div>
-              <label className="mb-2 block text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                Commentaire
-              </label>
+            return (
+              <article
+                key={ligne.idLigneSortieStock}
+                className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm"
+              >
+                <div className="border-b border-slate-100 px-5 py-4">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex min-w-0 items-start gap-4">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-700">
+                        <Layers3 size={22} />
+                      </div>
 
-              <input
-                value={commentaire}
-                onChange={(e) => setCommentaire(e.target.value)}
-                placeholder="Commentaire du bon de sortie..."
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-[#0b4a5f]"
-              />
-            </div>
-          </div>
+                      <div className="min-w-0">
+                        <h3 className="text-2xl font-black leading-tight text-slate-950">
+                          Ligne {index + 1}
+                        </h3>
+
+                        <p className="mt-1 truncate text-sm font-black text-slate-500">
+                          Actuel :{' '}
+                          {ligne.article?.reference ||
+                            ligne.article?.designation ||
+                            ligne.article?.libelle ||
+                            `Article #${ligne.idArticle}`}
+                        </p>
+
+                        {serialise && (
+                          <p className="mt-1 text-sm font-black text-orange-600">
+                            Article sérialisé
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                      <div className="inline-flex h-11 items-center rounded-xl bg-slate-100 px-4 text-sm font-black text-slate-700">
+                        Total ligne : {formatMoney(getLineTotal(draft))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSaveLine(ligne.idLigneSortieStock)
+                        }
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#06475a] px-4 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
+                      >
+                        <Save
+                          size={17}
+                          className={
+                            savingLineId === ligne.idLigneSortieStock
+                              ? 'animate-pulse'
+                              : ''
+                          }
+                        />
+                        Enregistrer
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDeleteLine(ligne.idLigneSortieStock)
+                        }
+                        className={[
+                          'inline-flex h-11 items-center justify-center rounded-xl border px-3 text-sm font-black transition',
+                          deleteCandidateId === ligne.idLigneSortieStock
+                            ? 'border-red-200 bg-red-600 text-white hover:bg-red-700'
+                            : 'border-red-100 bg-red-50 text-red-600 hover:bg-red-100',
+                        ].join(' ')}
+                        title="Supprimer la ligne"
+                      >
+                        {deleteCandidateId === ligne.idLigneSortieStock ? (
+                          'Confirmer'
+                        ) : (
+                          <Trash2 size={17} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-5">
+                  <div className="grid gap-4 xl:grid-cols-12">
+                    <div className="xl:col-span-4">
+                      <Field label="Article">
+                        <Select
+                          value={draft.articleId}
+                          onValueChange={(value) =>
+                            updateDraftLine(ligne.idLigneSortieStock, {
+                              articleId: value,
+                            })
+                          }
+                          placeholder="Sélectionner un article"
+                          items={articleOptions}
+                        />
+                      </Field>
+                    </div>
+
+                    <div className="xl:col-span-4">
+                      <Field label="Magasin">
+                        <Select
+                          value={draft.magasinId}
+                          onValueChange={(value) =>
+                            updateDraftLine(ligne.idLigneSortieStock, {
+                              magasinId: value,
+                            })
+                          }
+                          placeholder="Sélectionner un magasin"
+                          items={magasinOptions}
+                        />
+                      </Field>
+                    </div>
+
+                    <div className="xl:col-span-2">
+                      <Field label="Qté">
+                        <input
+                          type="number"
+                          min="1"
+                          disabled={serialise}
+                          value={draft.quantite}
+                          onChange={(event) =>
+                            updateDraftLine(ligne.idLigneSortieStock, {
+                              quantite: event.target.value,
+                            })
+                          }
+                          className={inputClassName}
+                        />
+                      </Field>
+                    </div>
+
+                    <div className="xl:col-span-2">
+                      <Field label="Prix unitaire">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={draft.prixUnitaire}
+                          onChange={(event) =>
+                            updateDraftLine(ligne.idLigneSortieStock, {
+                              prixUnitaire: event.target.value,
+                            })
+                          }
+                          placeholder="Prix"
+                          className={inputClassName}
+                        />
+
+                        <p className="mt-2 text-xs font-black text-slate-400">
+                          {formatMoney(draft.prixUnitaire)}
+                        </p>
+                      </Field>
+                    </div>
+
+                    <div className="xl:col-span-4">
+                      <Field label="Emplacement">
+                        <Select
+                          value={draft.emplacementId}
+                          onValueChange={(value) =>
+                            updateDraftLine(ligne.idLigneSortieStock, {
+                              emplacementId: value,
+                            })
+                          }
+                          placeholder="Choisir un emplacement"
+                          items={emplacementOptions}
+                        />
+                      </Field>
+                    </div>
+
+                    <div className="xl:col-span-4">
+                      <Field label="Matériel sérialisé">
+                        {serialise ? (
+                          <Select
+                            value={draft.materielId}
+                            onValueChange={(value) =>
+                              updateDraftLine(ligne.idLigneSortieStock, {
+                                materielId: value,
+                              })
+                            }
+                            placeholder="Sélectionner un matériel"
+                            items={materielOptions}
+                          />
+                        ) : (
+                          <input
+                            disabled
+                            value="Non concerné"
+                            className={inputClassName}
+                          />
+                        )}
+                      </Field>
+                    </div>
+
+                    <div className="xl:col-span-4">
+                      <Field label="Commentaire ligne">
+                        <input
+                          type="text"
+                          value={draft.commentaire}
+                          onChange={(event) =>
+                            updateDraftLine(ligne.idLigneSortieStock, {
+                              commentaire: event.target.value,
+                            })
+                          }
+                          placeholder="Commentaire"
+                          className={inputClassName}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </section>
 
         <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 p-6">
-            <h2 className="text-2xl font-black text-slate-950">
-              Lignes du bon de sortie
-            </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-500">
-              Modifier ou supprimer une ligne corrige automatiquement le stock côté backend.
-            </p>
+          <div className="border-b border-slate-100 px-5 py-4">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-700">
+                <PackageMinus size={22} />
+              </div>
+
+              <div>
+                <h3 className="text-2xl font-black leading-tight text-slate-950">
+                  Ajouter une nouvelle ligne
+                </h3>
+
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  La ligne sera ajoutée au bon et le stock sera diminué.
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] border-collapse">
-              <thead>
-                <tr className="bg-slate-50 text-left">
-                  <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                    Article
-                  </th>
-                  <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                    Magasin
-                  </th>
-                  <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                    Qté
-                  </th>
-                  <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                    Prix
-                  </th>
-                  <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                    Commentaire
-                  </th>
-                  <th className="px-6 py-4 text-right text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
+          <div className="p-5">
+            <div className="grid gap-4 xl:grid-cols-12">
+              <div className="xl:col-span-4">
+                <Field label="Article">
+                  <Select
+                    value={newLine.articleId}
+                    onValueChange={(value) =>
+                      updateNewLine({
+                        articleId: value,
+                      })
+                    }
+                    placeholder="Sélectionner un article"
+                    items={articleOptions}
+                  />
+                </Field>
+              </div>
 
-              <tbody>
-                {lignes.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-6 py-8 text-center text-sm font-bold text-slate-400"
-                    >
-                      Aucune ligne dans ce bon de sortie.
-                    </td>
-                  </tr>
-                ) : (
-                  lignes.map((ligne) => {
-                    const edit = lineEdits[ligne.idLigneSortieStock] ?? {
-                      quantite: String(toNumber(ligne.quantite)),
-                      prixUnitaire:
-                        ligne.prixUnitaire === null || ligne.prixUnitaire === undefined
-                          ? ''
-                          : String(ligne.prixUnitaire),
-                      commentaire: ligne.commentaire ?? '',
-                    };
+              <div className="xl:col-span-4">
+                <Field label="Magasin">
+                  <Select
+                    value={newLine.magasinId}
+                    onValueChange={(value) =>
+                      updateNewLine({
+                        magasinId: value,
+                      })
+                    }
+                    placeholder="Sélectionner un magasin"
+                    items={magasinOptions}
+                  />
+                </Field>
+              </div>
 
-                    return (
-                      <tr
-                        key={ligne.idLigneSortieStock}
-                        className="border-t border-slate-100"
-                      >
-                        <td className="px-6 py-4">
-                          <p className="font-black text-slate-800">
-                            {getArticleLabel(ligne.article)}
-                          </p>
-                          <p className="mt-1 text-xs font-bold text-slate-400">
-                            ID article : {ligne.idArticle}
-                          </p>
-                        </td>
+              <div className="xl:col-span-2">
+                <Field label="Qté">
+                  <input
+                    type="number"
+                    min="1"
+                    disabled={isArticleSerialise(newLine.articleId)}
+                    value={newLine.quantite}
+                    onChange={(event) =>
+                      updateNewLine({
+                        quantite: event.target.value,
+                      })
+                    }
+                    className={inputClassName}
+                  />
+                </Field>
+              </div>
 
-                        <td className="px-6 py-4">
-                          <p className="font-black text-slate-800">
-                            {getMagasinLabel(ligne.magasin)}
-                          </p>
-                          <p className="mt-1 text-xs font-bold text-slate-400">
-                            ID magasin : {ligne.idMagasin}
-                          </p>
-                        </td>
+              <div className="xl:col-span-2">
+                <Field label="Prix unitaire">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={newLine.prixUnitaire}
+                    onChange={(event) =>
+                      updateNewLine({
+                        prixUnitaire: event.target.value,
+                      })
+                    }
+                    placeholder="Prix"
+                    className={inputClassName}
+                  />
+                </Field>
+              </div>
 
-                        <td className="px-6 py-4">
-                          <input
-                            type="number"
-                            min="0.01"
-                            step="0.01"
-                            value={edit.quantite}
-                            onChange={(e) =>
-                              setLineEdits((prev) => ({
-                                ...prev,
-                                [ligne.idLigneSortieStock]: {
-                                  ...edit,
-                                  quantite: e.target.value,
-                                },
-                              }))
-                            }
-                            className="h-12 w-36 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-[#0b4a5f]"
-                          />
-                        </td>
+              <div className="xl:col-span-4">
+                <Field label="Emplacement">
+                  <Select
+                    value={newLine.emplacementId}
+                    onValueChange={(value) =>
+                      updateNewLine({
+                        emplacementId: value,
+                      })
+                    }
+                    placeholder="Choisir un emplacement"
+                    items={getEmplacementOptions(newLine.magasinId)}
+                  />
+                </Field>
+              </div>
 
-                        <td className="px-6 py-4">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={edit.prixUnitaire}
-                            onChange={(e) =>
-                              setLineEdits((prev) => ({
-                                ...prev,
-                                [ligne.idLigneSortieStock]: {
-                                  ...edit,
-                                  prixUnitaire: e.target.value,
-                                },
-                              }))
-                            }
-                            placeholder="Prix"
-                            className="h-12 w-40 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-[#0b4a5f]"
-                          />
-                        </td>
+              <div className="xl:col-span-4">
+                <Field label="Matériel sérialisé">
+                  {isArticleSerialise(newLine.articleId) ? (
+                    <Select
+                      value={newLine.materielId}
+                      onValueChange={(value) =>
+                        updateNewLine({
+                          materielId: value,
+                        })
+                      }
+                      placeholder="Sélectionner un matériel"
+                      items={getMaterielOptions(
+                        newLine.articleId,
+                        newLine.magasinId,
+                      )}
+                    />
+                  ) : (
+                    <input
+                      disabled
+                      value="Non concerné"
+                      className={inputClassName}
+                    />
+                  )}
+                </Field>
+              </div>
 
-                        <td className="px-6 py-4">
-                          <input
-                            value={edit.commentaire}
-                            onChange={(e) =>
-                              setLineEdits((prev) => ({
-                                ...prev,
-                                [ligne.idLigneSortieStock]: {
-                                  ...edit,
-                                  commentaire: e.target.value,
-                                },
-                              }))
-                            }
-                            placeholder="Commentaire"
-                            className="h-12 w-64 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-[#0b4a5f]"
-                          />
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateLine(ligne)}
-                              disabled={savingLineId === ligne.idLigneSortieStock}
-                              className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0b4a5f] text-white shadow-sm transition hover:bg-[#07394a] disabled:cursor-not-allowed disabled:opacity-60"
-                              title="Enregistrer la ligne"
-                            >
-                              <Save size={18} />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteLine(ligne)}
-                              disabled={deletingLineId === ligne.idLigneSortieStock}
-                              className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                              title="Supprimer la ligne"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 p-6">
-            <h2 className="text-2xl font-black text-slate-950">
-              Ajouter une nouvelle ligne
-            </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-500">
-              Seuls les articles non sérialisés avec stock disponible sont affichés.
-            </p>
-          </div>
-
-          <div className="grid gap-4 p-6 xl:grid-cols-[1.4fr_180px_180px_1fr_160px]">
-            <div>
-              <label className="mb-2 block text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                Article / magasin
-              </label>
-
-              <select
-                value={newLine.stockKey}
-                onChange={(e) =>
-                  setNewLine((prev) => ({
-                    ...prev,
-                    stockKey: e.target.value,
-                  }))
-                }
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-[#0b4a5f]"
-              >
-                <option value="">Choisir un article disponible</option>
-
-                {stocksNonSerialises.map((stock) => (
-                  <option
-                    key={`${stock.idArticle}-${stock.idMagasin}`}
-                    value={`${stock.idArticle}-${stock.idMagasin}`}
-                  >
-                    {getArticleLabel(stock.article)} / {getMagasinLabel(stock.magasin)} — dispo :{' '}
-                    {toNumber(stock.quantiteDisponible)}
-                  </option>
-                ))}
-              </select>
+              <div className="xl:col-span-4">
+                <Field label="Commentaire ligne">
+                  <input
+                    type="text"
+                    value={newLine.commentaire}
+                    onChange={(event) =>
+                      updateNewLine({
+                        commentaire: event.target.value,
+                      })
+                    }
+                    placeholder="Commentaire"
+                    className={inputClassName}
+                  />
+                </Field>
+              </div>
             </div>
 
-            <div>
-              <label className="mb-2 block text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                Quantité
-              </label>
-
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={newLine.quantite}
-                onChange={(e) =>
-                  setNewLine((prev) => ({
-                    ...prev,
-                    quantite: e.target.value,
-                  }))
-                }
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-[#0b4a5f]"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                Prix
-              </label>
-
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={newLine.prixUnitaire}
-                onChange={(e) =>
-                  setNewLine((prev) => ({
-                    ...prev,
-                    prixUnitaire: e.target.value,
-                  }))
-                }
-                placeholder="Prix"
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-[#0b4a5f]"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                Commentaire
-              </label>
-
-              <input
-                value={newLine.commentaire}
-                onChange={(e) =>
-                  setNewLine((prev) => ({
-                    ...prev,
-                    commentaire: e.target.value,
-                  }))
-                }
-                placeholder="Commentaire"
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-[#0b4a5f]"
-              />
-            </div>
-
-            <div className="flex items-end">
+            <div className="mt-5 flex justify-end">
               <button
                 type="button"
                 onClick={handleAddLine}
-                disabled={addingLine}
-                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#0b4a5f] px-5 text-sm font-black text-white shadow-sm transition hover:bg-[#07394a] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#06475a] px-4 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
               >
-                <Plus size={18} />
-                {addingLine ? 'Ajout...' : 'Ajouter'}
+                <Save size={17} className={addingLine ? 'animate-pulse' : ''} />
+                Ajouter la ligne
               </button>
             </div>
           </div>
         </section>
-      </div>
+      </section>
     </main>
+  );
+}
+
+const inputClassName =
+  'h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10';
+
+function SummaryCard({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4">
+      <div className="flex items-center gap-3">
+        <div className="text-[#06475a]">{icon}</div>
+
+        <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+          {label}
+        </p>
+      </div>
+
+      <p className="mt-3 text-xl font-black text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function SectionTitle({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-3">
+        <span className="h-2.5 w-2.5 rounded-full bg-[#06475a]" />
+
+        <h2 className="text-base font-black uppercase tracking-[0.18em] text-slate-500">
+          {title}
+        </h2>
+      </div>
+
+      {subtitle && (
+        <p className="mt-2 text-sm font-semibold text-slate-500">
+          {subtitle}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+        {label}
+      </span>
+
+      {children}
+    </label>
   );
 }

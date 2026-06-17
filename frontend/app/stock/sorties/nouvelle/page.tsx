@@ -1,194 +1,383 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
+  Layers3,
+  PackageMinus,
   Plus,
+  RefreshCcw,
   Save,
   Trash2,
-  PackageMinus,
-  AlertCircle,
 } from 'lucide-react';
 
-type Article = {
-  idArticle: number;
-  reference?: string | null;
-  designation?: string | null;
-  serialise?: boolean | null;
-};
+import { Select } from '@/components/select';
 
-type Magasin = {
-  idMagasin: number;
+import { getArticles } from '@/features/articles/services/article.service';
+import { getMagasins } from '@/features/articles/services/article-referentiel.service';
+import type { Article, Magasin } from '@/features/articles/types/article';
+
+import { getMateriels } from '@/features/materiels/services/materiel.service';
+import type { Materiel } from '@/features/materiels/types/materiel';
+
+import { createStockSortie } from '@/features/stock-sorties/services/stock-sortie.service';
+import type {
+  CreateStockSortieDto,
+  LigneSortieStockCrudDto,
+} from '@/features/stock-sorties/types/stock-sortie';
+
+type EmplacementMagasin = {
+  idEmplacement: number;
   code?: string | null;
   libelle?: string | null;
+  actif?: boolean | null;
 };
 
-type StockArticleMagasin = {
-  idStock: number;
-  idArticle: number;
-  idMagasin: number;
-  quantitePhysique: number | string;
-  quantiteReservee: number | string;
-  quantiteDisponible: number | string;
-  article?: Article;
-  magasin?: Magasin;
-};
-
-type Materiel = {
-  idMateriel: number;
-  code?: string | null;
-  numeroSerie?: string | null;
-  idArticle?: number | null;
-  idMagasin?: number | null;
-};
-
-type LigneSortie = {
-  idArticle: string;
-  idMagasin: string;
-  idMateriel: string;
+type SortieLineForm = {
+  id: string;
+  articleId: string;
+  magasinId: string;
+  emplacementId: string;
+  materielId: string;
   quantite: string;
+  prixUnitaire: string;
   commentaire: string;
 };
 
-const API_URL = 'http://localhost:3001';
+const API_BASE_URL = 'http://localhost:3001';
 
-function toNumber(value: number | string | null | undefined) {
-  return Number(value ?? 0);
+async function getEmplacementsByMagasin(
+  idMagasin: number,
+): Promise<EmplacementMagasin[]> {
+  const res = await fetch(`${API_BASE_URL}/magasins/${idMagasin}/emplacements`, {
+    cache: 'no-store',
+  });
+
+  if (!res.ok) return [];
+
+  return res.json();
+}
+
+function getTodayInputDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function createEmptyLine(): SortieLineForm {
+  return {
+    id: crypto.randomUUID(),
+    articleId: '',
+    magasinId: '',
+    emplacementId: 'none',
+    materielId: 'none',
+    quantite: '1',
+    prixUnitaire: '',
+    commentaire: '',
+  };
+}
+
+function formatMoney(value?: number | string | null) {
+  if (value === null || value === undefined || value === '') return '—';
+
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) return '—';
+
+  return `${amount.toLocaleString('fr-FR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} DA`;
+}
+
+function buildArticleLabel(article: Article) {
+  const reference = article.reference || `Article #${article.idArticle}`;
+  const designation = article.designation || 'Sans désignation';
+
+  return `${reference} — ${designation}`;
+}
+
+function buildMagasinLabel(magasin: Magasin) {
+  const code = magasin.code || `MAG-${magasin.idMagasin}`;
+  const libelle = magasin.libelle || 'Sans libellé';
+
+  return `${code} — ${libelle}`;
+}
+
+function getLineTotal(line: SortieLineForm) {
+  const quantite = Number(line.quantite || 0);
+  const prixUnitaire = Number(line.prixUnitaire || 0);
+
+  return quantite * prixUnitaire;
+}
+
+function getMaterielAny(materiel: Materiel) {
+  return materiel as unknown as Record<string, any>;
+}
+
+function isMaterielLinkedToArticle(materiel: Materiel, article: Article) {
+  const anyMateriel = getMaterielAny(materiel);
+  const anyArticle = article as unknown as Record<string, any>;
+
+  const modele =
+    anyMateriel.modele ||
+    anyMateriel.modeleEquipement ||
+    anyMateriel.modele_equipement;
+
+  const articleFromModele = modele?.article;
+
+  return (
+    anyMateriel.idArticle === article.idArticle ||
+    modele?.idArticle === article.idArticle ||
+    articleFromModele?.idArticle === article.idArticle ||
+    (anyArticle.idModele && anyMateriel.idModele === anyArticle.idModele)
+  );
+}
+
+function getMaterielMagasinId(materiel: Materiel): number | null {
+  const anyMateriel = getMaterielAny(materiel);
+
+  const ligneEntree =
+    anyMateriel.ligneEntreeStock ||
+    anyMateriel.entree_stock_ligne ||
+    anyMateriel.ligne_entree_stock;
+
+  const magasin =
+    anyMateriel.magasin ||
+    ligneEntree?.magasin ||
+    ligneEntree?.magasinSource ||
+    ligneEntree?.magasinDestination;
+
+  return (
+    anyMateriel.idMagasin ??
+    ligneEntree?.idMagasin ??
+    magasin?.idMagasin ??
+    null
+  );
+}
+
+function isMaterielDisponible(materiel: Materiel) {
+  const anyMateriel = getMaterielAny(materiel);
+
+  if (anyMateriel.actif === false) return false;
+
+  const position = anyMateriel.positionActuelle;
+
+  if (!position) return true;
+
+  return position === 'EN_STOCK' || position === 'EN_RESERVE';
+}
+
+function getMaterielLabel(materiel: Materiel) {
+  const anyMateriel = getMaterielAny(materiel);
+
+  const code = anyMateriel.code || `MAT-${anyMateriel.idMateriel}`;
+  const numeroSerie = anyMateriel.numeroSerie;
+
+  if (numeroSerie) return `${code} — Série : ${numeroSerie}`;
+
+  return code;
 }
 
 export default function NouvelleSortieStockPage() {
   const router = useRouter();
 
-  const [dateSortie, setDateSortie] = useState('');
-  const [commentaire, setCommentaire] = useState('');
-
   const [articles, setArticles] = useState<Article[]>([]);
   const [magasins, setMagasins] = useState<Magasin[]>([]);
-  const [stocks, setStocks] = useState<StockArticleMagasin[]>([]);
   const [materiels, setMateriels] = useState<Materiel[]>([]);
 
-  const [lignes, setLignes] = useState<LigneSortie[]>([
-    {
-      idArticle: '',
-      idMagasin: '',
-      idMateriel: '',
-      quantite: '1',
-      commentaire: '',
-    },
-  ]);
+  const [emplacementsByMagasin, setEmplacementsByMagasin] = useState<
+    Record<number, EmplacementMagasin[]>
+  >({});
+
+  const [dateSortie, setDateSortie] = useState(getTodayInputDate());
+  const [commentaire, setCommentaire] = useState('');
+  const [lines, setLines] = useState<SortieLineForm[]>([createEmptyLine()]);
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  async function loadData() {
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+
+  const loadReferentiels = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
 
-      const [articlesRes, magasinsRes, stockRes, materielsRes] =
-        await Promise.all([
-          fetch(`${API_URL}/articles`),
-          fetch(`${API_URL}/magasins`),
-          fetch(`${API_URL}/stock`),
-          fetch(`${API_URL}/materiels`),
-        ]);
+      const [articlesData, magasinsData, materielsData] = await Promise.all([
+        getArticles(),
+        getMagasins(),
+        getMateriels(),
+      ]);
 
-      if (!articlesRes.ok) throw new Error('Erreur chargement articles');
-      if (!magasinsRes.ok) throw new Error('Erreur chargement magasins');
-      if (!stockRes.ok) throw new Error('Erreur chargement stock');
-      if (!materielsRes.ok) throw new Error('Erreur chargement matériels');
-
-      setArticles(await articlesRes.json());
-      setMagasins(await magasinsRes.json());
-      setStocks(await stockRes.json());
-      setMateriels(await materielsRes.json());
+      setArticles(articlesData);
+      setMagasins(magasinsData.filter((magasin) => magasin.actif !== false));
+      setMateriels(materielsData);
     } catch (err) {
-      console.error(err);
-      setError('Erreur lors du chargement des données.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Erreur lors du chargement des référentiels.',
+      );
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    setDateSortie(today);
-    loadData();
   }, []);
 
-  const stockDisponibleMap = useMemo(() => {
-    const map = new Map<string, number>();
+  useEffect(() => {
+    loadReferentiels();
+  }, [loadReferentiels]);
 
-    for (const stock of stocks) {
-      const key = `${stock.idArticle}-${stock.idMagasin}`;
-      map.set(key, toNumber(stock.quantiteDisponible));
+  const articleOptions = useMemo(() => {
+    return articles
+      .filter((article) => article.actif !== false && article.gereEnStock)
+      .map((article) => ({
+        value: String(article.idArticle),
+        label: buildArticleLabel(article),
+      }));
+  }, [articles]);
+
+  const magasinOptions = useMemo(() => {
+    return magasins.map((magasin) => ({
+      value: String(magasin.idMagasin),
+      label: buildMagasinLabel(magasin),
+    }));
+  }, [magasins]);
+
+  const totalQuantite = lines.reduce(
+    (total, line) => total + Number(line.quantite || 0),
+    0,
+  );
+
+  const totalMontant = lines.reduce(
+    (total, line) => total + getLineTotal(line),
+    0,
+  );
+
+  function getArticleById(id?: string) {
+    if (!id) return null;
+
+    return articles.find((article) => article.idArticle === Number(id)) ?? null;
+  }
+
+  function isArticleSerialise(id?: string) {
+    const article = getArticleById(id);
+
+    return Boolean(article?.serialise);
+  }
+
+  async function ensureEmplacements(idMagasin?: number | null) {
+    if (!idMagasin || Number.isNaN(idMagasin)) return;
+
+    if (emplacementsByMagasin[idMagasin]) return;
+
+    const data = await getEmplacementsByMagasin(idMagasin);
+
+    setEmplacementsByMagasin((prev) => ({
+      ...prev,
+      [idMagasin]: data,
+    }));
+  }
+
+  function getEmplacementOptions(magasinId?: string) {
+    const idMagasin = Number(magasinId);
+    const emplacements = emplacementsByMagasin[idMagasin] ?? [];
+
+    return [
+      { value: 'none', label: 'Aucun emplacement' },
+      ...emplacements
+        .filter((emplacement) => emplacement.actif !== false)
+        .map((emplacement) => ({
+          value: String(emplacement.idEmplacement),
+          label:
+            emplacement.code && emplacement.libelle
+              ? `${emplacement.code} — ${emplacement.libelle}`
+              : emplacement.code ||
+                emplacement.libelle ||
+                `Emplacement #${emplacement.idEmplacement}`,
+        })),
+    ];
+  }
+
+  function getMaterielOptions(articleId?: string, magasinId?: string) {
+    const article = getArticleById(articleId);
+    const idMagasin = Number(magasinId);
+
+    if (!article) {
+      return [{ value: 'none', label: 'Sélectionner un matériel' }];
     }
 
-    return map;
-  }, [stocks]);
+    const selectedMaterielIds = new Set(
+      lines
+        .map((line) => line.materielId)
+        .filter((value) => value && value !== 'none'),
+    );
 
-  function getArticle(idArticle: string) {
-    return articles.find((a) => a.idArticle === Number(idArticle));
+    const filteredMateriels = materiels.filter((materiel) => {
+      const anyMateriel = getMaterielAny(materiel);
+      const idMateriel = String(anyMateriel.idMateriel);
+
+      const linked = isMaterielLinkedToArticle(materiel, article);
+      const available = isMaterielDisponible(materiel);
+      const materielMagasinId = getMaterielMagasinId(materiel);
+
+      const matchesMagasin =
+        !idMagasin || !materielMagasinId || materielMagasinId === idMagasin;
+
+      const notAlreadySelected = !selectedMaterielIds.has(idMateriel);
+
+      return linked && available && matchesMagasin && notAlreadySelected;
+    });
+
+    return [
+      { value: 'none', label: 'Sélectionner un matériel' },
+      ...filteredMateriels.map((materiel) => ({
+        value: String(getMaterielAny(materiel).idMateriel),
+        label: getMaterielLabel(materiel),
+      })),
+    ];
   }
 
-  function getDisponibilite(idArticle: string, idMagasin: string) {
-    if (!idArticle || !idMagasin) return 0;
-    return stockDisponibleMap.get(`${idArticle}-${idMagasin}`) ?? 0;
-  }
+  function updateLine(id: string, patch: Partial<SortieLineForm>) {
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== id) return line;
 
-  function updateLigne(index: number, field: keyof LigneSortie, value: string) {
-    setLignes((prev) =>
-      prev.map((ligne, i) => {
-        if (i !== index) return ligne;
-
-        const updated = {
-          ...ligne,
-          [field]: value,
+        const next: SortieLineForm = {
+          ...line,
+          ...patch,
         };
 
-        if (field === 'idArticle') {
-          updated.idMateriel = '';
-          updated.quantite = '1';
+        if (patch.articleId !== undefined) {
+          next.materielId = 'none';
         }
 
-        if (field === 'idMagasin') {
-          updated.idMateriel = '';
+        if (patch.magasinId !== undefined) {
+          next.emplacementId = 'none';
+          next.materielId = 'none';
+          ensureEmplacements(Number(patch.magasinId));
         }
 
-        return updated;
+        if (isArticleSerialise(next.articleId)) {
+          next.quantite = '1';
+        } else {
+          next.materielId = 'none';
+        }
+
+        return next;
       }),
     );
   }
 
-  function ajouterLigne() {
-    setLignes((prev) => [
-      ...prev,
-      {
-        idArticle: '',
-        idMagasin: '',
-        idMateriel: '',
-        quantite: '1',
-        commentaire: '',
-      },
-    ]);
+  function addLine() {
+    setLines((prev) => [...prev, createEmptyLine()]);
   }
 
-  function supprimerLigne(index: number) {
-    if (lignes.length === 1) return;
+  function removeLine(id: string) {
+    setLines((prev) => {
+      if (prev.length === 1) return prev;
 
-    setLignes((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  function getMaterielsDisponibles(ligne: LigneSortie) {
-    if (!ligne.idArticle || !ligne.idMagasin) return [];
-
-    return materiels.filter((materiel) => {
-      const sameArticle = Number(materiel.idArticle) === Number(ligne.idArticle);
-      const sameMagasin = Number(materiel.idMagasin) === Number(ligne.idMagasin);
-
-      return sameArticle && sameMagasin;
+      return prev.filter((line) => line.id !== id);
     });
   }
 
@@ -197,385 +386,466 @@ export default function NouvelleSortieStockPage() {
       return 'La date de sortie est obligatoire.';
     }
 
-    if (lignes.length === 0) {
-      return 'Vous devez ajouter au moins une ligne.';
+    if (lines.length === 0) {
+      return 'Ajoutez au moins une ligne de sortie.';
     }
 
-    for (let i = 0; i < lignes.length; i++) {
-      const ligne = lignes[i];
-      const article = getArticle(ligne.idArticle);
-      const quantite = Number(ligne.quantite);
-      const disponible = getDisponibilite(ligne.idArticle, ligne.idMagasin);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const lineNumber = index + 1;
 
-      if (!ligne.idArticle) {
-        return `Ligne ${i + 1} : veuillez sélectionner un article.`;
+      if (!line.articleId) {
+        return `Ligne ${lineNumber} : veuillez sélectionner un article.`;
       }
 
-      if (!ligne.idMagasin) {
-        return `Ligne ${i + 1} : veuillez sélectionner un magasin.`;
+      if (!line.magasinId) {
+        return `Ligne ${lineNumber} : veuillez sélectionner un magasin.`;
       }
 
-      if (!quantite || quantite <= 0) {
-        return `Ligne ${i + 1} : la quantité doit être supérieure à 0.`;
+      const quantite = Number(line.quantite);
+
+      if (!Number.isFinite(quantite) || quantite <= 0) {
+        return `Ligne ${lineNumber} : la quantité doit être supérieure à 0.`;
       }
 
-      if (quantite > disponible) {
-        return `Ligne ${i + 1} : quantité insuffisante. Disponible : ${disponible}.`;
-      }
-
-      if (article?.serialise) {
-        if (quantite !== 1) {
-          return `Ligne ${i + 1} : pour un article sérialisé, la quantité doit être égale à 1.`;
-        }
-
-        if (!ligne.idMateriel) {
-          return `Ligne ${i + 1} : veuillez choisir le matériel à sortir.`;
-        }
+      if (isArticleSerialise(line.articleId) && line.materielId === 'none') {
+        return `Ligne ${lineNumber} : veuillez sélectionner le matériel sérialisé à sortir.`;
       }
     }
 
     return '';
   }
 
+  function buildPayloadLine(line: SortieLineForm): LigneSortieStockCrudDto {
+    const serialise = isArticleSerialise(line.articleId);
+
+    const payload: LigneSortieStockCrudDto = {
+      idArticle: Number(line.articleId),
+      idMagasin: Number(line.magasinId),
+      quantite: serialise ? 1 : Number(line.quantite),
+      commentaire: line.commentaire.trim() || undefined,
+    };
+
+    if (line.emplacementId && line.emplacementId !== 'none') {
+      payload.idEmplacement = Number(line.emplacementId);
+    }
+
+    if (line.prixUnitaire !== '') {
+      payload.prixUnitaire = Number(line.prixUnitaire);
+    }
+
+    if (serialise && line.materielId !== 'none') {
+      payload.idMateriel = Number(line.materielId);
+    }
+
+    return payload;
+  }
+
   async function handleSubmit() {
+    const validationError = validateForm();
+
+    if (validationError) {
+      setError(validationError);
+      setSuccessMessage('');
+      return;
+    }
+
     try {
+      setSubmitting(true);
       setError('');
+      setSuccessMessage('');
 
-      const validationError = validateForm();
-
-      if (validationError) {
-        setError(validationError);
-        return;
-      }
-
-      setSaving(true);
-
-      const payload = {
+      const payload: CreateStockSortieDto = {
         dateSortie,
         commentaire: commentaire.trim() || null,
-        lignes: lignes.map((ligne) => {
-          const article = getArticle(ligne.idArticle);
-
-          return {
-            idArticle: Number(ligne.idArticle),
-            idMagasin: Number(ligne.idMagasin),
-            idMateriel: article?.serialise ? Number(ligne.idMateriel) : undefined,
-            quantite: Number(ligne.quantite),
-            commentaire: ligne.commentaire.trim() || null,
-          };
-        }),
+        lignes: lines.map(buildPayloadLine),
       };
 
-      const res = await fetch(`${API_URL}/stock/sorties`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      const created = await createStockSortie(payload);
 
-      if (!res.ok) {
-        const message = await res.text();
-        throw new Error(message || 'Erreur lors de la sortie stock.');
-      }
+      setSuccessMessage('Bon de sortie créé avec succès.');
 
-      router.push('/stock/mouvements');
+      router.push(`/stock/sorties/${created.idSortieStock}`);
     } catch (err) {
-      console.error(err);
-      setError('Erreur lors de l’enregistrement de la sortie stock.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Erreur lors de la création du bon de sortie.',
+      );
     } finally {
-      setSaving(false);
+      setSubmitting(false);
     }
   }
 
   return (
-    <div className="w-full min-w-0 px-6 py-8 lg:px-10">
-      <div className="space-y-7">
-        <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm lg:p-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-sm font-bold uppercase tracking-[0.35em] text-slate-400">
-                Module stock
-              </p>
-
-              <h1 className="mt-2 text-4xl font-black text-slate-950">
-                Nouvelle sortie stock
-              </h1>
-
-              <p className="mt-2 text-lg text-slate-500">
-                Enregistrez une sortie d’articles depuis un magasin.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => router.push('/stock')}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
-              >
-                <ArrowLeft size={19} />
-                Retour
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={saving || loading}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#0f3d56] px-6 font-black text-white shadow-sm transition hover:bg-[#0b2f44] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Save size={19} />
-                {saving ? 'Enregistrement...' : 'Enregistrer'}
-              </button>
-            </div>
-          </div>
-        </section>
+    <main className="min-h-[calc(100vh-96px)] bg-[#f5f7fb] px-5 py-6">
+      <section className="mx-auto max-w-[1280px] space-y-5">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="inline-flex items-center gap-2 text-sm font-black text-slate-500 transition hover:text-[#06475a]"
+        >
+          <ArrowLeft size={18} />
+          Retour
+        </button>
 
         {error && (
-          <div className="flex items-center gap-3 rounded-2xl border border-red-100 bg-red-50 px-5 py-4 font-semibold text-red-700">
-            <AlertCircle size={20} />
+          <div className="rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-black text-red-700">
             {error}
           </div>
         )}
 
-        <section className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 p-6 lg:p-8">
-            <div className="flex items-start gap-4">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-600">
-                <PackageMinus size={28} />
+        {successMessage && (
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm font-black text-emerald-700">
+            {successMessage}
+          </div>
+        )}
+
+        <section className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-sm">
+          <div className="bg-gradient-to-r from-[#0a556b] to-[#0d6f87] px-6 py-6 text-white">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex items-start gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-white">
+                  <PackageMinus size={28} />
+                </div>
+
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.35em] text-white/70">
+                    Bon de sortie stock
+                  </p>
+
+                  <h1 className="mt-2 text-3xl font-black tracking-tight">
+                    Nouvelle sortie stock
+                  </h1>
+
+                  <p className="mt-2 text-sm font-semibold text-white/85">
+                    Créez un bon de sortie et retirez les articles du stock.
+                  </p>
+                </div>
               </div>
 
-              <div>
-                <p className="text-sm font-bold uppercase tracking-[0.35em] text-slate-400">
-                  Bon de sortie
-                </p>
-
-                <h2 className="mt-1 text-3xl font-black text-slate-950">
-                  Informations générales
-                </h2>
-
-                <p className="mt-1 text-slate-500">
-                  La sortie diminuera automatiquement le stock disponible.
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={submitting || loading}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-black text-[#06475a] shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Save size={17} className={submitting ? 'animate-pulse' : ''} />
+                Enregistrer la sortie
+              </button>
             </div>
           </div>
 
-          <div className="grid gap-5 p-6 lg:grid-cols-2 lg:p-8">
-            <div>
-              <label className="mb-2 block font-bold text-slate-800">
-                Date de sortie <span className="text-red-500">*</span>
-              </label>
+          <div className="px-6 py-6">
+            <SectionTitle title="Généralités" />
 
-              <input
-                type="date"
-                value={dateSortie}
-                onChange={(e) => setDateSortie(e.target.value)}
-                className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-[#0f3d56] focus:ring-4 focus:ring-[#0f3d56]/10"
-              />
-            </div>
+            <div className="mt-3 rounded-[26px] border border-slate-200 bg-slate-50/70 p-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Date sortie *">
+                  <input
+                    type="date"
+                    value={dateSortie}
+                    onChange={(event) => setDateSortie(event.target.value)}
+                    className={inputClassName}
+                  />
+                </Field>
 
-            <div>
-              <label className="mb-2 block font-bold text-slate-800">
-                Commentaire général
-              </label>
+                <Field label="Commentaire général">
+                  <input
+                    type="text"
+                    value={commentaire}
+                    onChange={(event) => setCommentaire(event.target.value)}
+                    placeholder="Exemple : sortie pour intervention"
+                    className={inputClassName}
+                  />
+                </Field>
+              </div>
 
-              <input
-                type="text"
-                value={commentaire}
-                onChange={(e) => setCommentaire(e.target.value)}
-                placeholder="Exemple : sortie pour intervention"
-                className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-[#0f3d56] focus:ring-4 focus:ring-[#0f3d56]/10"
-              />
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                <MiniSummary label="Lignes" value={String(lines.length)} />
+                <MiniSummary label="Quantité totale" value={String(totalQuantite)} />
+                <MiniSummary label="Montant estimé" value={formatMoney(totalMontant)} />
+              </div>
             </div>
           </div>
         </section>
 
-        <section className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-4 border-b border-slate-100 p-6 lg:flex-row lg:items-center lg:justify-between lg:p-8">
-            <div>
-              <h2 className="text-3xl font-black text-slate-950">
-                Lignes de sortie
-              </h2>
-
-              <p className="mt-1 text-slate-500">
-                Ajoutez les articles à sortir du stock.
-              </p>
-            </div>
+        <section className="space-y-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <SectionTitle
+              title="Lignes de sortie"
+              subtitle="Ajoutez les articles à sortir. Pour un article sérialisé, sélectionnez le matériel existant."
+            />
 
             <button
               type="button"
-              onClick={ajouterLigne}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#0f3d56] px-5 font-black text-white shadow-sm transition hover:bg-[#0b2f44]"
+              onClick={addLine}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#06475a] px-4 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
             >
-              <Plus size={19} />
+              <Plus size={17} />
               Ajouter une ligne
             </button>
           </div>
 
-          <div className="space-y-5 p-6 lg:p-8">
-            {lignes.map((ligne, index) => {
-              const article = getArticle(ligne.idArticle);
-              const articleSerialise = Boolean(article?.serialise);
-              const disponible = getDisponibilite(
-                ligne.idArticle,
-                ligne.idMagasin,
+          {loading ? (
+            <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                <RefreshCcw size={24} className="animate-spin" />
+              </div>
+
+              <p className="mt-4 text-sm font-black text-slate-500">
+                Chargement du formulaire de sortie...
+              </p>
+            </div>
+          ) : (
+            lines.map((line, index) => {
+              const serialise = isArticleSerialise(line.articleId);
+              const emplacementOptions = getEmplacementOptions(line.magasinId);
+              const materielOptions = getMaterielOptions(
+                line.articleId,
+                line.magasinId,
               );
-              const materielsDisponibles = getMaterielsDisponibles(ligne);
 
               return (
-                <div
-                  key={index}
-                  className="rounded-[24px] border border-slate-200 bg-slate-50 p-5"
+                <article
+                  key={line.id}
+                  className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm"
                 >
-                  <div className="mb-5 flex items-center justify-between">
-                    <h3 className="text-2xl font-black text-slate-950">
-                      Ligne {index + 1}
-                    </h3>
+                  <div className="border-b border-slate-100 px-5 py-4">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-700">
+                          <Layers3 size={22} />
+                        </div>
 
-                    <button
-                      type="button"
-                      onClick={() => supprimerLigne(index)}
-                      disabled={lignes.length === 1}
-                      className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-red-100 bg-red-50 text-red-500 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <Trash2 size={19} />
-                    </button>
-                  </div>
+                        <div>
+                          <h3 className="text-2xl font-black leading-tight text-slate-950">
+                            Ligne {index + 1}
+                          </h3>
 
-                  <div className="grid gap-5 lg:grid-cols-2">
-                    <div>
-                      <label className="mb-2 block font-bold text-slate-800">
-                        Article <span className="text-red-500">*</span>
-                      </label>
+                          <p className="mt-1 text-sm font-black text-slate-500">
+                            Total ligne : {formatMoney(getLineTotal(line))}
+                          </p>
 
-                      <select
-                        value={ligne.idArticle}
-                        onChange={(e) =>
-                          updateLigne(index, 'idArticle', e.target.value)
-                        }
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-[#0f3d56] focus:ring-4 focus:ring-[#0f3d56]/10"
-                      >
-                        <option value="">Sélectionner un article</option>
-
-                        {articles.map((article) => (
-                          <option
-                            key={article.idArticle}
-                            value={article.idArticle}
-                          >
-                            {article.reference ?? `#${article.idArticle}`} —{' '}
-                            {article.designation ?? 'Sans libellé'}
-                            {article.serialise ? ' — Sérialisé' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block font-bold text-slate-800">
-                        Magasin <span className="text-red-500">*</span>
-                      </label>
-
-                      <select
-                        value={ligne.idMagasin}
-                        onChange={(e) =>
-                          updateLigne(index, 'idMagasin', e.target.value)
-                        }
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-[#0f3d56] focus:ring-4 focus:ring-[#0f3d56]/10"
-                      >
-                        <option value="">Sélectionner un magasin</option>
-
-                        {magasins.map((magasin) => (
-                          <option
-                            key={magasin.idMagasin}
-                            value={magasin.idMagasin}
-                          >
-                            {magasin.code ?? `#${magasin.idMagasin}`} —{' '}
-                            {magasin.libelle ?? 'Sans libellé'}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block font-bold text-slate-800">
-                        Quantité <span className="text-red-500">*</span>
-                      </label>
-
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={ligne.quantite}
-                        disabled={articleSerialise}
-                        onChange={(e) =>
-                          updateLigne(index, 'quantite', e.target.value)
-                        }
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-[#0f3d56] focus:ring-4 focus:ring-[#0f3d56]/10 disabled:bg-slate-100"
-                      />
-
-                      {ligne.idArticle && ligne.idMagasin && (
-                        <p className="mt-2 text-sm font-semibold text-slate-500">
-                          Disponible :{' '}
-                          <span className="text-emerald-700">
-                            {disponible}
-                          </span>
-                        </p>
-                      )}
-                    </div>
-
-                    {articleSerialise && (
-                      <div>
-                        <label className="mb-2 block font-bold text-slate-800">
-                          Matériel à sortir{' '}
-                          <span className="text-red-500">*</span>
-                        </label>
-
-                        <select
-                          value={ligne.idMateriel}
-                          onChange={(e) =>
-                            updateLigne(index, 'idMateriel', e.target.value)
-                          }
-                          className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-[#0f3d56] focus:ring-4 focus:ring-[#0f3d56]/10"
-                        >
-                          <option value="">Sélectionner le matériel</option>
-
-                          {materielsDisponibles.map((materiel) => (
-                            <option
-                              key={materiel.idMateriel}
-                              value={materiel.idMateriel}
-                            >
-                              {materiel.code ?? `MAT-${materiel.idMateriel}`}
-                              {materiel.numeroSerie
-                                ? ` — N° série : ${materiel.numeroSerie}`
-                                : ''}
-                            </option>
-                          ))}
-                        </select>
+                          {serialise && (
+                            <p className="mt-1 text-sm font-black text-orange-600">
+                              Article sérialisé · quantité fixée à 1
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    )}
 
-                    <div className={articleSerialise ? 'lg:col-span-2' : ''}>
-                      <label className="mb-2 block font-bold text-slate-800">
-                        Commentaire ligne
-                      </label>
-
-                      <input
-                        type="text"
-                        value={ligne.commentaire}
-                        onChange={(e) =>
-                          updateLigne(index, 'commentaire', e.target.value)
-                        }
-                        placeholder="Commentaire facultatif"
-                        className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-[#0f3d56] focus:ring-4 focus:ring-[#0f3d56]/10"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => removeLine(line.id)}
+                        disabled={lines.length === 1}
+                        className="inline-flex h-11 items-center justify-center rounded-xl border border-red-100 bg-red-50 px-3 text-sm font-black text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        title="Supprimer la ligne"
+                      >
+                        <Trash2 size={17} />
+                      </button>
                     </div>
                   </div>
-                </div>
+
+                  <div className="p-5">
+                    <div className="grid gap-4 xl:grid-cols-12">
+                      <div className="xl:col-span-4">
+                        <Field label="Article *">
+                          <Select
+                            value={line.articleId}
+                            onValueChange={(value) =>
+                              updateLine(line.id, {
+                                articleId: value,
+                              })
+                            }
+                            placeholder="Sélectionner un article"
+                            items={articleOptions}
+                          />
+                        </Field>
+                      </div>
+
+                      <div className="xl:col-span-4">
+                        <Field label="Magasin *">
+                          <Select
+                            value={line.magasinId}
+                            onValueChange={(value) =>
+                              updateLine(line.id, {
+                                magasinId: value,
+                              })
+                            }
+                            placeholder="Sélectionner un magasin"
+                            items={magasinOptions}
+                          />
+                        </Field>
+                      </div>
+
+                      <div className="xl:col-span-2">
+                        <Field label="Qté *">
+                          <input
+                            type="number"
+                            min="1"
+                            disabled={serialise}
+                            value={line.quantite}
+                            onChange={(event) =>
+                              updateLine(line.id, {
+                                quantite: event.target.value,
+                              })
+                            }
+                            className={inputClassName}
+                          />
+                        </Field>
+                      </div>
+
+                      <div className="xl:col-span-2">
+                        <Field label="Prix unitaire">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.prixUnitaire}
+                            onChange={(event) =>
+                              updateLine(line.id, {
+                                prixUnitaire: event.target.value,
+                              })
+                            }
+                            placeholder="Prix"
+                            className={inputClassName}
+                          />
+                        </Field>
+                      </div>
+
+                      <div className="xl:col-span-4">
+                        <Field label="Emplacement">
+                          <Select
+                            value={line.emplacementId}
+                            onValueChange={(value) =>
+                              updateLine(line.id, {
+                                emplacementId: value,
+                              })
+                            }
+                            placeholder="Choisir un emplacement"
+                            items={emplacementOptions}
+                          />
+                        </Field>
+                      </div>
+
+                      <div className="xl:col-span-4">
+                        <Field label="Matériel sérialisé">
+                          {serialise ? (
+                            <Select
+                              value={line.materielId}
+                              onValueChange={(value) =>
+                                updateLine(line.id, {
+                                  materielId: value,
+                                })
+                              }
+                              placeholder="Sélectionner un matériel"
+                              items={materielOptions}
+                            />
+                          ) : (
+                            <input
+                              disabled
+                              value="Non concerné"
+                              className={inputClassName}
+                            />
+                          )}
+                        </Field>
+                      </div>
+
+                      <div className="xl:col-span-4">
+                        <Field label="Commentaire ligne">
+                          <input
+                            type="text"
+                            value={line.commentaire}
+                            onChange={(event) =>
+                              updateLine(line.id, {
+                                commentaire: event.target.value,
+                              })
+                            }
+                            placeholder="Commentaire"
+                            className={inputClassName}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  </div>
+                </article>
               );
-            })}
-          </div>
+            })
+          )}
         </section>
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={submitting || loading}
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#06475a] px-6 text-sm font-black text-white shadow-sm transition hover:bg-[#043747] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Save size={18} className={submitting ? 'animate-pulse' : ''} />
+            Enregistrer la sortie
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+const inputClassName =
+  'h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-950 outline-none transition placeholder:text-slate-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 focus:border-[#06475a] focus:ring-4 focus:ring-[#06475a]/10';
+
+function SectionTitle({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-3">
+        <span className="h-2.5 w-2.5 rounded-full bg-[#06475a]" />
+
+        <h2 className="text-base font-black uppercase tracking-[0.18em] text-slate-500">
+          {title}
+        </h2>
       </div>
+
+      {subtitle && (
+        <p className="mt-2 text-sm font-semibold text-slate-500">
+          {subtitle}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+        {label}
+      </span>
+
+      {children}
+    </label>
+  );
+}
+
+function MiniSummary({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+      <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+        {label}
+      </p>
+
+      <p className="mt-1 text-lg font-black text-slate-950">{value}</p>
     </div>
   );
 }

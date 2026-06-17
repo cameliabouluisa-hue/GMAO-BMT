@@ -66,7 +66,6 @@ const menuStructure: MenuModule[] = [
       { label: 'Articles', href: '/articles' },
       { label: 'Entrées ', href: '/stock/entrees' },
       { label: 'Historique des mouvements', href: '/stock/mouvements' },
-      { label: 'Unités articles', href: '/unites-articles' },
       { label: 'Magasins', href: '/magasins' },
       { label: 'Inventaires préparés', href: '/stock/inventaires-prepares' },
       { label: 'Inventaire', href: '/stock/inventaire' },

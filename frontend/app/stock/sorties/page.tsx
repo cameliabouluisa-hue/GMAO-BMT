@@ -1,366 +1,310 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Eye,
+  CheckCircle2,
+  FileText,
+  Layers,
   PackageMinus,
   Plus,
   RefreshCcw,
-  CalendarDays,
-  Warehouse,
-  Boxes,
+  RotateCcw,
   Search,
 } from 'lucide-react';
 
- import { getStockSorties } from '@/features/stock-sorties/services/stock-sortie.service';
-import type { StockSortie, StockSortieLigne } from '@/features/stock-sorties/types/stock-sortie';
+import { Select } from '@/components/select';
+import { getStockSorties } from '@/features/stock-sorties/services/stock-sortie.service';
+import { StockSortieListOptionB } from '@/features/stock-sorties/components/StockSortieListOptionB';
 
-type SortieLigneView = {
-  idLigneSortieStock?: number;
-  idArticle?: number;
-  idMagasin?: number;
-  quantite?: number | string | null;
+import type {
+  StockSortie,
+  StockSortieLigne,
+} from '@/features/stock-sorties/types/stock-sortie';
 
-  article?: {
-    idArticle?: number;
-    reference?: string | null;
-    designation?: string | null;
-    libelle?: string | null;
-    serialise?: boolean | null;
-  } | null;
+type StatutFilter = 'all' | 'VALIDEE' | 'BROUILLON' | 'ANNULEE';
 
-  magasin?: {
-    idMagasin?: number;
-    code?: string | null;
-    libelle?: string | null;
-    nom?: string | null;
-  } | null;
-};
-
-type StockSortieView = StockSortie & {
-  id?: number;
-  idSortieStock?: number;
-  numero?: string | null;
-  dateSortie?: string | Date | null;
-  commentaire?: string | null;
-  statut?: string | null;
-
-  lignes?: SortieLigneView[];
-  sortie_stoimportck_ligne?: SortieLigneView[];
-  lignesSortieStock?: SortieLigneView[];
-};
-
-function formatDate(date?: string | Date | null) {
-  if (!date) return '-';
-
-  const parsedDate = new Date(date);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return '-';
-  }
-
-  return new Intl.DateTimeFormat('fr-FR').format(parsedDate);
+function getLignes(sortie: StockSortie): StockSortieLigne[] {
+  return sortie.lignes ?? sortie.sortie_stock_ligne ?? [];
 }
 
-function getSortieId(sortie: StockSortieView) {
-  return Number(sortie.idSortieStock ?? sortie.id ?? 0);
-}
-
-function getLignes(sortie: StockSortieView): SortieLigneView[] {
-  if (Array.isArray(sortie.sortie_stock_ligne)) {
-    return sortie.sortie_stock_ligne;
-  }
-
-  if (Array.isArray(sortie.lignes)) {
-    return sortie.lignes;
-  }
-
-  if (Array.isArray(sortie.lignesSortieStock)) {
-    return sortie.lignesSortieStock;
-  }
-
-  return [];
-}
-
-function getArticleLabel(ligne: SortieLigneView) {
-  return (
-    ligne.article?.reference ??
-    ligne.article?.designation ??
-    ligne.article?.libelle ??
-    `Article #${ligne.idArticle ?? '-'}`
+function getTotalQuantite(sortie: StockSortie): number {
+  return getLignes(sortie).reduce<number>(
+    (total, ligne) => total + Number(ligne.quantite ?? 0),
+    0,
   );
 }
 
-function getMagasinLabel(ligne: SortieLigneView) {
-  const code = ligne.magasin?.code;
-  const libelle = ligne.magasin?.libelle ?? ligne.magasin?.nom;
-
-  if (code && libelle) return `${code} — ${libelle}`;
-  if (code) return code;
-  if (libelle) return libelle;
-
-  return `Magasin #${ligne.idMagasin ?? '-'}`;
-}
-
-function getArticlesText(sortie: StockSortieView) {
+function getSearchText(sortie: StockSortie): string {
   const lignes = getLignes(sortie);
 
-  if (lignes.length === 0) return '-';
+  const articles = lignes
+    .map((ligne) => {
+      return [
+        ligne.article?.reference,
+        ligne.article?.designation,
+        ligne.article?.libelle,
+        ligne.idArticle ? `Article ${ligne.idArticle}` : '',
+      ].join(' ');
+    })
+    .join(' ');
 
-  return lignes.map(getArticleLabel).join(', ');
-}
+  const magasins = lignes
+    .map((ligne) => {
+      return [
+        ligne.magasin?.code,
+        ligne.magasin?.libelle,
+        ligne.idMagasin ? `Magasin ${ligne.idMagasin}` : '',
+      ].join(' ');
+    })
+    .join(' ');
 
-function getMagasinsText(sortie: StockSortieView) {
-  const lignes = getLignes(sortie);
-
-  if (lignes.length === 0) return '-';
-
-  const magasins = lignes.map(getMagasinLabel);
-
-  return [...new Set(magasins)].join(', ');
-}
-
-function getQuantiteTotale(sortie: StockSortieView) {
-  return getLignes(sortie).reduce((total, ligne) => {
-    return total + Number(ligne.quantite ?? 0);
-  }, 0);
+  return [
+    sortie.numero,
+    sortie.statut,
+    sortie.idSortieStock,
+    sortie.commentaire,
+    articles,
+    magasins,
+  ]
+    .join(' ')
+    .toLowerCase();
 }
 
 export default function StockSortiesPage() {
   const router = useRouter();
 
-  const [sorties, setSorties] = useState<StockSortieView[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
+  const [sorties, setSorties] = useState<StockSortie[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState('');
 
-  async function loadSorties() {
+  const [search, setSearch] = useState('');
+  const [statut, setStatut] = useState<StatutFilter>('all');
+
+  const loadSorties = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
+      setError('');
 
       const data = await getStockSorties();
-
-      setSorties(data as StockSortieView[]);
+      setSorties(data);
     } catch (err) {
-      const message =
+      setError(
         err instanceof Error
           ? err.message
-          : 'Erreur lors du chargement des bons de sortie.';
-
-      setError(message);
+          : 'Erreur lors du chargement des bons de sortie.',
+      );
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     loadSorties();
-  }, []);
+  }, [loadSorties]);
 
   const filteredSorties = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-
-    if (!keyword) return sorties;
+    const q = search.trim().toLowerCase();
 
     return sorties.filter((sortie) => {
-      const id = getSortieId(sortie);
+      const matchesSearch = !q || getSearchText(sortie).includes(q);
 
-      const content = [
-        sortie.numero,
-        sortie.statut,
-        id,
-        getArticlesText(sortie),
-        getMagasinsText(sortie),
-        formatDate(sortie.dateSortie),
-      ]
-        .join(' ')
-        .toLowerCase();
+      const matchesStatut =
+        statut === 'all' || String(sortie.statut) === statut;
 
-      return content.includes(keyword);
+      return matchesSearch && matchesStatut;
     });
-  }, [sorties, search]);
+  }, [sorties, search, statut]);
 
-  function handleView(id: number) {
-    router.push(`/stock/sorties/${id}`);
-  }
+  const stats = useMemo(() => {
+    return {
+      total: sorties.length,
+      validees: sorties.filter((sortie) => sortie.statut === 'VALIDEE').length,
+      lignes: sorties.reduce(
+        (total, sortie) => total + getLignes(sortie).length,
+        0,
+      ),
+      quantite: sorties.reduce(
+        (total, sortie) => total + getTotalQuantite(sortie),
+        0,
+      ),
+    };
+  }, [sorties]);
 
-  function handleCreate() {
-    router.push('/stock/sorties/nouvelle');
+  function resetFilters() {
+    setSearch('');
+    setStatut('all');
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-7xl space-y-6">
-        <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.3em] text-slate-400">
-                Module stock
-              </p>
+    <main className="min-h-[calc(100vh-96px)] bg-[#f5f7fb] px-5 py-6">
+      <section className="mx-auto max-w-[1450px] space-y-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl font-black tracking-tight text-slate-950">
+              Sorties stock
+            </h1>
 
-              <h1 className="mt-2 text-3xl font-black text-slate-900 lg:text-4xl">
-                Sorties stock
-              </h1>
-
-              <p className="mt-2 max-w-2xl text-sm font-medium text-slate-500">
-                Consultez les bons de sortie des articles non sérialisés et les
-                magasins concernés.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={loadSorties}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
-              >
-                <RefreshCcw size={18} />
-                Actualiser
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCreate}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#0f3d56] px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-[#0b3044]"
-              >
-                <Plus size={18} />
-                Nouvelle sortie
-              </button>
-            </div>
+            <p className="mt-1 text-base font-semibold text-slate-500">
+              Consultez les bons de sortie, leurs lignes d’articles et les
+              mouvements générés.
+            </p>
           </div>
-        </section>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={loadSorties}
+              disabled={loading}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCcw
+                size={18}
+                className={loading ? 'animate-spin' : ''}
+              />
+              Actualiser
+            </button>
+
+            <button
+              type="button"
+              onClick={() => router.push('/stock/sorties/nouvelle')}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#06475a] px-5 text-sm font-black text-white shadow-sm transition hover:bg-[#043747]"
+            >
+              <Plus size={18} />
+              Nouvelle sortie
+            </button>
+          </div>
+        </div>
 
         {error && (
-          <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">
+          <div className="rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-black text-red-700">
             {error}
           </div>
         )}
 
-        <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-4 border-b border-slate-100 p-6 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600">
-                <PackageMinus size={24} />
-              </div>
+        <div className="grid gap-3 md:grid-cols-4">
+          <MiniStat
+            icon={<FileText size={18} />}
+            label="Total"
+            value={stats.total}
+            tone="blue"
+          />
 
-              <div>
-                <h2 className="text-2xl font-black text-slate-900">
-                  Liste des bons de sortie
-                </h2>
+          <MiniStat
+            icon={<CheckCircle2 size={18} />}
+            label="Validées"
+            value={stats.validees}
+            tone="green"
+          />
 
-                <p className="mt-1 text-sm font-medium text-slate-500">
-                  {filteredSorties.length} bon(s) affiché(s) sur{' '}
-                  {sorties.length}
-                </p>
-              </div>
-            </div>
+          <MiniStat
+            icon={<Layers size={18} />}
+            label="Lignes"
+            value={stats.lignes}
+            tone="purple"
+          />
 
-            <div className="relative w-full lg:max-w-md">
-              <Search
-                size={19}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-              />
+          <MiniStat
+            icon={<PackageMinus size={18} />}
+            label="Quantité"
+            value={stats.quantite}
+            tone="red"
+          />
+        </div>
 
+        <div className="rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative w-full lg:flex-1">
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Rechercher par numéro, article ou magasin..."
-                className="h-13 w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#0f3d56] focus:bg-white"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pl-10 text-sm font-semibold text-slate-950 outline-none transition placeholder:text-slate-400 hover:bg-white focus:border-[#06475a] focus:bg-white focus:ring-4 focus:ring-[#06475a]/10"
+              />
+
+              <Search
+                size={18}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
               />
             </div>
+
+            <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
+              <div className="w-full sm:w-[240px]">
+                <Select
+                  value={statut}
+                  onValueChange={(value) => setStatut(value as StatutFilter)}
+                  items={[
+                    { label: 'Tous les statuts', value: 'all' },
+                    { label: 'Validées', value: 'VALIDEE' },
+                    { label: 'Brouillons', value: 'BROUILLON' },
+                    { label: 'Annulées', value: 'ANNULEE' },
+                  ]}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-black text-slate-700 transition hover:bg-white sm:w-[170px]"
+              >
+                <RotateCcw size={17} />
+                Réinitialiser
+              </button>
+            </div>
           </div>
+        </div>
 
-          {loading ? (
-            <div className="p-8 text-center text-sm font-semibold text-slate-500">
-              Chargement des sorties...
-            </div>
-          ) : filteredSorties.length === 0 ? (
-            <div className="p-8 text-center text-sm font-semibold text-slate-500">
-              Aucun bon de sortie trouvé.
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {filteredSorties.map((sortie, index) => {
-                const id = getSortieId(sortie);
-                const lignes = getLignes(sortie);
-                const quantiteTotale = getQuantiteTotale(sortie);
-
-                return (
-                  <article
-                    key={id || index}
-                    className="grid gap-5 p-6 transition hover:bg-slate-50 lg:grid-cols-[1.2fr_0.8fr_1.2fr_1.2fr_auto]"
-                  >
-                    <div>
-                      <h3 className="text-xl font-black text-slate-900">
-                        {sortie.numero ?? `BS-${id}`}
-                      </h3>
-
-                      <span className="mt-2 inline-flex rounded-full bg-red-50 px-3 py-1 text-xs font-black uppercase text-red-700">
-                        {sortie.statut ?? 'VALIDEE'}
-                      </span>
-
-                      <p className="mt-3 text-xs font-bold text-slate-400">
-                        ID : {id || '-'} · {lignes.length} ligne(s)
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-                        <CalendarDays size={16} />
-                        Date
-                      </p>
-
-                      <p className="mt-2 text-sm font-black text-slate-900">
-                        {formatDate(sortie.dateSortie)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-                        <Boxes size={16} />
-                        Articles
-                      </p>
-
-                      <p className="mt-2 line-clamp-2 text-sm font-black text-slate-900">
-                        {getArticlesText(sortie)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-                        <Warehouse size={16} />
-                        Magasins
-                      </p>
-
-                      <p className="mt-2 line-clamp-2 text-sm font-black text-slate-900">
-                        {getMagasinsText(sortie)}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-3 lg:justify-end">
-                      <span className="rounded-2xl bg-red-50 px-4 py-2 text-sm font-black text-red-700">
-                        - {quantiteTotale}
-                      </span>
-
-                      <button
-                        type="button"
-                        onClick={() => handleView(id)}
-                        disabled={!id}
-                        className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Voir le détail"
-                      >
-                        <Eye size={20} />
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      </div>
+        <StockSortieListOptionB
+          sorties={filteredSorties}
+          total={sorties.length}
+          loading={loading}
+          onView={(id) => router.push(`/stock/sorties/${id}`)}
+        />
+      </section>
     </main>
+  );
+}
+
+function MiniStat({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  tone: 'blue' | 'green' | 'purple' | 'red';
+}) {
+  const tones = {
+    blue: 'bg-blue-50 text-blue-600',
+    green: 'bg-emerald-50 text-emerald-600',
+    purple: 'bg-violet-50 text-violet-600',
+    red: 'bg-red-50 text-red-600',
+  };
+
+  return (
+    <div className="rounded-[22px] border border-slate-200 bg-white px-5 py-4 shadow-sm">
+      <div className="flex items-center gap-4">
+        <div
+          className={[
+            'flex h-12 w-12 items-center justify-center rounded-2xl',
+            tones[tone],
+          ].join(' ')}
+        >
+          {icon}
+        </div>
+
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">
+            {label}
+          </p>
+
+          <p className="mt-1 text-3xl font-black tracking-tight text-slate-950">
+            {value}
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
